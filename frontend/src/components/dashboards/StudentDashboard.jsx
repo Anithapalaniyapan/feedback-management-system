@@ -1,1519 +1,655 @@
-import { Container, Typography, Grid, Box, AppBar, Toolbar, Snackbar, Alert, Button, Paper, Card, CardContent, IconButton, Collapse, Drawer, List, ListItem, ListItemIcon, ListItemText, useMediaQuery, useTheme, Fade, TextField, BottomNavigation, BottomNavigationAction, Divider } from '@mui/material';
-import { Logout, Assessment, Feedback, Schedule, Person, ExpandMore, ExpandLess, Menu as MenuIcon, Description, AccessTime, Room, CalendarToday, ChatBubble, Article } from '@mui/icons-material';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-
-// Import the extracted components
-import StudentProfile from '../student/StudentProfile';
-import FeedbackQuestions from '../student/FeedbackQuestions';
-import MeetingSchedule from '../student/MeetingSchedule';
-import MeetingMinutes from '../student/MeetingMinutes';
+import {
+  Box,
+  Typography,
+  Paper,
+  Button,
+  Grid,
+  Rating,
+  Avatar,
+  Drawer,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Divider,
+  Snackbar,
+  Alert,
+  Container
+} from '@mui/material';
+import PersonIcon from '@mui/icons-material/Person';
+import FeedbackIcon from '@mui/icons-material/Feedback';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import DescriptionIcon from '@mui/icons-material/Description';
+import LogoutIcon from '@mui/icons-material/Logout';
+import StarIcon from '@mui/icons-material/Star';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [feedbackQuestions, setFeedbackQuestions] = useState([]);
-  const [userProfile, setUserProfile] = useState(null);
-  const [feedbackRatings, setFeedbackRatings] = useState({});
-  const [meetings, setMeetings] = useState({ 
-    pastMeetings: [
-      { id: 1, meetingDate: '2024-01-15', startTime: '10:00 AM', location: '101', title: 'Academic Review' },
-      { id: 2, meetingDate: '2024-01-10', startTime: '02:00 PM', location: '203', title: 'Project Discussion' }
-    ], 
-    currentMeetings: [
-      { id: 3, meetingDate: '2024-01-20', startTime: '11:30 AM', location: '305', title: 'Current Project Review' }
-    ], 
-    futureMeetings: [
-      { id: 4, meetingDate: '2024-01-25', startTime: '09:00 AM', location: '402', title: 'Future Planning' },
-      { id: 5, meetingDate: '2024-01-30', startTime: '03:30 PM', location: '105', title: 'Semester Review' }
-    ] 
+  const [activeSection, setActiveSection] = useState('profile');
+  const [userProfile, setUserProfile] = useState({
+    name: 'John Doe',
+    department: 'Computer Science',
+    sin: 'ST23456789',
+    year: 'Third Year',
+    email: 'john.doe@university.edu'
   });
-  const [meetingMinutes, setMeetingMinutes] = useState([]);
-  const [activeView, setActiveView] = useState('profile'); // profile, feedback, schedule, minutes
-  const [nextMeeting, setNextMeeting] = useState(null);
-  const [countdownTime, setCountdownTime] = useState({ minutes: 45, seconds: 30 });
-  const [selectedMeeting, setSelectedMeeting] = useState(null);
-  const [drawerOpen, setDrawerOpen] = useState(!isMobile);
+  const [meetings, setMeetings] = useState([]);
+  const [questions, setQuestions] = useState([
+    { id: 1, text: 'How would you rate the course content?' },
+    { id: 2, text: 'How would you rate the instructor\'s teaching?' },
+    { id: 3, text: 'How would you rate the learning environment?' },
+    { id: 4, text: 'How would you rate the overall experience?' }
+  ]);
+  const [ratings, setRatings] = useState({
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
     severity: 'info'
   });
+  const [nextMeeting, setNextMeeting] = useState({
+    date: 'January 25, 2024',
+    time: '09:00 AM',
+    minutesLeft: 45,
+    secondsLeft: 30
+  });
 
-  // Handle drawer toggle for mobile view
-  const handleDrawerToggle = () => {
-    setDrawerOpen(!drawerOpen);
-  };
+  // Check authentication and role on component mount
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const userRole = localStorage.getItem('userRole');
+    
+    if (!token) {
+      console.log('No token found, redirecting to login');
+      navigate('/login');
+      return;
+    }
+    
+    if (userRole !== 'STUDENT') {
+      console.log('User role is not STUDENT:', userRole);
+      setSnackbar({
+        open: true,
+        message: 'You do not have permission to access this dashboard',
+        severity: 'error'
+      });
+      navigate('/login');
+      return;
+    }
 
-  // Effect to handle responsive drawer state
-  useEffect(() => {
-    setDrawerOpen(!isMobile);
-  }, [isMobile]);
-  
-  // Effect to set up the next meeting and countdown timer
-  useEffect(() => {
-    if (meetings && meetings.futureMeetings && meetings.futureMeetings.length > 0) {
-      // Sort future meetings by date
-      const sortedMeetings = [...meetings.futureMeetings].sort((a, b) => 
-        new Date(a.meetingDate + 'T' + a.startTime) - new Date(b.meetingDate + 'T' + b.startTime)
-      );
+    console.log('Loading student profile...');
+    // Fetch user profile
+    fetchUserProfile();
+  }, [navigate]);
+
+  // Fetch user profile
+  const fetchUserProfile = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No token found');
+        return;
+      }
+
+      console.log('Fetching user profile with token:', token.substring(0, 10) + '...');
       
-      // Get the next upcoming meeting
-      const nextUpcomingMeeting = sortedMeetings[0];
-      setNextMeeting(nextUpcomingMeeting);
-      
-      // Set up countdown timer
-      if (nextUpcomingMeeting) {
-        // This is just for demo purposes - in a real app, you would calculate the actual time difference
-        // between now and the meeting time
-        const timer = setInterval(() => {
-          setCountdownTime(prev => {
-            if (prev.seconds > 0) {
-              return { ...prev, seconds: prev.seconds - 1 };
-            } else if (prev.minutes > 0) {
-              return { minutes: prev.minutes - 1, seconds: 59 };
-            } else {
-              clearInterval(timer);
-              return { minutes: 0, seconds: 0 };
-            }
+      // First try to get user data from login response that might be stored in localStorage
+      const userData = localStorage.getItem('userData');
+      if (userData) {
+        try {
+          const parsedUserData = JSON.parse(userData);
+          console.log('Found stored user data:', parsedUserData);
+          
+          setUserProfile({
+            name: parsedUserData.fullName || 'John Doe',
+            department: parsedUserData.department?.name || 'Computer Science',
+            sin: parsedUserData.sinNumber || parsedUserData.username || 'ST23456789',
+            year: parsedUserData.year ? `Year ${parsedUserData.year}` : 'Third Year',
+            email: parsedUserData.email || 'john.doe@university.edu'
           });
-        }, 1000);
+        } catch (e) {
+          console.error('Error parsing stored user data:', e);
+        }
+      }
+      
+      // Still try the API call to ensure data is fresh
+      console.log('Making API request to users/profile endpoint');
+      
+      // Use the correct endpoint from the API documentation
+      const response = await axios.get('http://localhost:8080/api/users/profile', {
+        headers: {
+          'x-access-token': token
+        }
+      });
+      
+      console.log('Profile API response received:', response.data);
+      
+      if (response.data && Object.keys(response.data).length > 0) {
+        // Set user profile with data from backend using the field names from API documentation
+        setUserProfile({
+          name: response.data.fullName || 'John Doe',
+          department: response.data.department?.name || 'Computer Science',
+          sin: response.data.sinNumber || response.data.username || 'ST23456789',
+          year: response.data.year ? `Year ${response.data.year}` : 'Third Year',
+          email: response.data.email || 'john.doe@university.edu'
+        });
         
-        return () => clearInterval(timer);
+        // Store the user data for future use
+        localStorage.setItem('userData', JSON.stringify(response.data));
+      } else {
+        console.error('Empty profile data received from API');
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      console.error('Error response:', error.response?.data);
+      
+      // Don't show error notification to user if we already loaded data from localStorage
+      if (!localStorage.getItem('userData')) {
+        setSnackbar({
+          open: true,
+          message: 'Unable to load profile from server. Using default values.',
+          severity: 'warning'
+        });
       }
     }
-  }, [meetings]);
-
-  // Helper function to get ordinal suffix for numbers
-  const getOrdinalSuffix = (num) => {
-    const j = num % 10;
-    const k = num % 100;
-    if (j === 1 && k !== 11) {
-      return 'st';
-    }
-    if (j === 2 && k !== 12) {
-      return 'nd';
-    }
-    if (j === 3 && k !== 13) {
-      return 'rd';
-    }
-    return 'th';
   };
 
-  // Sidebar navigation component
-  const renderSidebar = () => {
-    return (
-      <Box
-        sx={{
-          width: 250,
-          height: '100%',
-          bgcolor: '#1a2a5e',
-          color: 'white',
-          display: 'flex',
-          flexDirection: 'column'
-        }}
-      >
-        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
-          <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-            Student Dashboard
+  // Fetch meetings
+  useEffect(() => {
+    const fetchMeetings = async () => {
+      setLoading(true);
+      try {
+        const response = await axios.get('http://localhost:8080/api/meetings', {
+          headers: {
+            'x-access-token': localStorage.getItem('token')
+          }
+        });
+        
+        // Sort meetings by date
+        const sortedMeetings = response.data.sort((a, b) => new Date(a.date) - new Date(b.date));
+        setMeetings(sortedMeetings);
+        
+        // Find next upcoming meeting for timer
+        const now = new Date();
+        const upcomingMeeting = sortedMeetings.find(m => new Date(m.date) > now);
+        
+        if (upcomingMeeting) {
+          const meetingDate = new Date(upcomingMeeting.date);
+          meetingDate.setHours(parseInt(upcomingMeeting.startTime.split(':')[0]));
+          meetingDate.setMinutes(parseInt(upcomingMeeting.startTime.split(':')[1]));
+          
+          const diffMs = meetingDate - now;
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffSecs = Math.floor((diffMs % 60000) / 1000);
+          
+          setNextMeeting({
+            date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            time: upcomingMeeting.startTime,
+            minutesLeft: diffMins,
+            secondsLeft: diffSecs
+          });
+        }
+      } catch (error) {
+        console.error('Error in fetchMeetings:', error);
+        setError(error.message);
+        setSnackbar({
+          open: true,
+          message: error.response?.data?.message || 'Failed to load meetings',
+          severity: 'error'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMeetings();
+  }, []);
+
+  // Fetch questions for feedback
+  const fetchQuestions = async (meetingId) => {
+    try {
+      const response = await axios.get(`http://localhost:8080/api/questions/meeting/${meetingId}`, {
+        headers: {
+          'x-access-token': localStorage.getItem('token')
+        }
+      });
+      
+      setQuestions(response.data);
+      
+      // Initialize ratings for each question
+      const initialRatings = {};
+      response.data.forEach(question => {
+        initialRatings[question.id] = 0;
+      });
+      setRatings(initialRatings);
+      
+      // Switch to feedback section
+      setActiveSection('feedback');
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Failed to load questions',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleRatingChange = (questionId, value) => {
+    setRatings(prev => ({
+      ...prev,
+      [questionId]: value
+    }));
+  };
+
+  const handleSubmitFeedback = async () => {
+    try {
+      // Validate that all questions have ratings
+      const hasEmptyRatings = Object.values(ratings).some(rating => rating === 0);
+      
+      if (hasEmptyRatings) {
+        setSnackbar({
+          open: true,
+          message: 'Please rate all questions before submitting',
+          severity: 'warning'
+        });
+        return;
+      }
+      
+      const feedbackData = {
+        responses: Object.entries(ratings).map(([questionId, rating]) => ({
+          questionId: parseInt(questionId),
+          rating
+        }))
+      };
+
+      await axios.post('http://localhost:8080/api/feedback', feedbackData, {
+        headers: {
+          'x-access-token': localStorage.getItem('token')
+        }
+      });
+
+      // Mark feedback as submitted
+      await axios.post('http://localhost:8080/api/feedback/mark-submitted', {
+        meetingId: meetings[0].id  // Assuming we're submitting for the first meeting
+      }, {
+        headers: {
+          'x-access-token': localStorage.getItem('token')
+        }
+      });
+
+      setSnackbar({
+        open: true,
+        message: 'Feedback submitted successfully',
+        severity: 'success'
+      });
+
+      // Reset ratings
+      const resetRatings = {};
+      questions.forEach(q => {
+        resetRatings[q.id] = 0;
+      });
+      setRatings(resetRatings);
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Failed to submit feedback',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate('/login', { replace: true });
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  // Render student profile section
+  const renderProfile = () => (
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Student Profile</Typography>
+      
+      <Box sx={{ 
+        display: 'flex',
+        alignItems: 'flex-start',
+        mb: 4
+      }}>
+        <Avatar sx={{ width: 76, height: 76, bgcolor: '#1A2137', mr: 4 }}>
+          {userProfile.name ? userProfile.name.charAt(0) : 'J'}
+        </Avatar>
+        
+        <Grid container spacing={3}>
+          <Grid item xs={6}>
+            <Box sx={{ mb: 2.5 }}>
+              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Name</Typography>
+              <Typography variant="body1">{userProfile.name}</Typography>
+            </Box>
+            
+            <Box sx={{ mb: 2.5 }}>
+              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Department</Typography>
+              <Typography variant="body1">{userProfile.department}</Typography>
+            </Box>
+            
+            <Box>
+              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Email ID</Typography>
+              <Typography variant="body1">{userProfile.email}</Typography>
+            </Box>
+          </Grid>
+          
+          <Grid item xs={6}>
+            <Box sx={{ mb: 2.5 }}>
+              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>SIN Number</Typography>
+              <Typography variant="body1">{userProfile.sin}</Typography>
+            </Box>
+            
+            <Box>
+              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Year</Typography>
+              <Typography variant="body1">{userProfile.year}</Typography>
+            </Box>
+          </Grid>
+        </Grid>
+      </Box>
+    </Paper>
+  );
+
+  // Render feedback section
+  const renderFeedback = () => (
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Submit Feedback</Typography>
+      
+      {questions.map((question) => (
+        <Box key={question.id} sx={{ mb: 3 }}>
+          <Typography variant="body1" gutterBottom>
+            {question.text}
+          </Typography>
+          <Rating
+            value={ratings[question.id] || 0}
+            onChange={(event, newValue) => handleRatingChange(question.id, newValue)}
+            size="medium"
+            sx={{ color: '#FFD700', mt: 1 }}
+          />
+        </Box>
+      ))}
+      
+      <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+        <Button 
+          variant="contained" 
+          onClick={handleSubmitFeedback}
+          sx={{ 
+            mt: 2, 
+            bgcolor: '#1A2137', 
+            '&:hover': { bgcolor: '#2A3147' },
+            fontWeight: 'medium',
+            px: 4,
+            py: 1
+          }}
+        >
+          Submit Feedback
+        </Button>
+      </Box>
+    </Paper>
+  );
+
+  // Render meeting schedule section
+  const renderMeetingSchedule = () => (
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
+      <Typography variant="h5" gutterBottom>Meeting Schedule</Typography>
+      
+      {/* Past meetings */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>Past Meeting Schedule</Typography>
+        
+        <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0 }}>
+          <Typography variant="body1" sx={{ fontWeight: 'bold' }}>2024-01-15</Typography>
+          <Typography variant="body2" color="text.secondary">10:00 AM</Typography>
+        </Box>
+        
+        <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0, mt: 1 }}>
+          <Typography variant="body1" sx={{ fontWeight: 'bold' }}>2024-01-10</Typography>
+          <Typography variant="body2" color="text.secondary">02:00 PM</Typography>
+        </Box>
+      </Box>
+      
+      {/* Present meetings */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>Present Meeting Schedule</Typography>
+        
+        <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0 }}>
+          <Typography variant="body1" sx={{ fontWeight: 'bold' }}>2024-01-20</Typography>
+          <Typography variant="body2" color="text.secondary">11:30 AM</Typography>
+        </Box>
+      </Box>
+      
+      {/* Upcoming meetings */}
+      <Box>
+        <Typography variant="h6" gutterBottom>Upcoming Meeting Schedule</Typography>
+        
+        <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0 }}>
+          <Typography variant="body1" sx={{ fontWeight: 'bold' }}>2024-01-25</Typography>
+          <Typography variant="body2" color="text.secondary">09:00 AM</Typography>
+        </Box>
+        
+        <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0, mt: 1 }}>
+          <Typography variant="body1" sx={{ fontWeight: 'bold' }}>2024-01-30</Typography>
+          <Typography variant="body2" color="text.secondary">03:30 PM</Typography>
+        </Box>
+      </Box>
+    </Paper>
+  );
+
+  // Render meeting minutes section
+  const renderMeetingMinutes = () => (
+    <Paper sx={{ p: 4, borderRadius: 2 }}>
+      <Typography variant="h5" gutterBottom>Meeting Minutes</Typography>
+      {/* Content for meeting minutes would go here */}
+      <Typography variant="body1" sx={{ mt: 2 }}>
+        No meeting minutes available.
+      </Typography>
+    </Paper>
+  );
+
+  // Render meeting timer section
+  const renderMeetingTimer = () => (
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
+      <Typography variant="h5" align="center" gutterBottom>Meeting Timer</Typography>
+      
+      <Typography variant="body1" align="center" sx={{ my: 2 }}>
+        Next Meeting: January 25, 2024 - 09:00 AM
+      </Typography>
+      
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        mt: 2
+      }}>
+        <Box sx={{ textAlign: 'center' }}>
+          <Typography variant="h2" sx={{ fontWeight: 'normal' }}>
+            45
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0 }}>
+            minutes
           </Typography>
         </Box>
-        <List sx={{ flexGrow: 1 }}>
-          <ListItem 
-            button 
-            onClick={() => setActiveView('profile')}
-            selected={activeView === 'profile'}
-            sx={{
-              py: 1.5,
-              '&.Mui-selected': {
-                bgcolor: 'rgba(255, 255, 255, 0.05)'
-              }
-            }}
-          >
-            <ListItemIcon>
-              <Person sx={{ color: 'white' }} />
-            </ListItemIcon>
-            <ListItemText 
-              primary="Profile" 
-              primaryTypographyProps={{ fontWeight: activeView === 'profile' ? 'medium' : 'normal' }}
-            />
-          </ListItem>
-          <ListItem 
-            button 
-            onClick={() => setActiveView('feedback')}
-            selected={activeView === 'feedback'}
-            sx={{
-              py: 1.5,
-              '&.Mui-selected': {
-                bgcolor: 'rgba(255, 255, 255, 0.05)'
-              }
-            }}
-          >
-            <ListItemIcon>
-              <Feedback sx={{ color: 'white' }} />
-            </ListItemIcon>
-            <ListItemText 
-              primary="Submit Feedback" 
-              primaryTypographyProps={{ fontWeight: activeView === 'feedback' ? 'medium' : 'normal' }}
-            />
-          </ListItem>
-          <ListItem 
-            button 
-            onClick={() => setActiveView('schedule')}
-            selected={activeView === 'schedule'}
-            sx={{
-              py: 1.5,
-              '&.Mui-selected': {
-                bgcolor: 'rgba(255, 255, 255, 0.05)'
-              }
-            }}
-          >
-            <ListItemIcon>
-              <Schedule sx={{ color: 'white' }} />
-            </ListItemIcon>
-            <ListItemText 
-              primary="View Meeting Schedule" 
-              primaryTypographyProps={{ fontWeight: activeView === 'schedule' ? 'medium' : 'normal' }}
-            />
-          </ListItem>
-          <ListItem 
-            button 
-            onClick={() => setActiveView('minutes')}
-            selected={activeView === 'minutes'}
-            sx={{
-              py: 1.5,
-              '&.Mui-selected': {
-                bgcolor: 'rgba(255, 255, 255, 0.05)'
-              }
-            }}
-          >
-            <ListItemIcon>
-              <Description sx={{ color: 'white' }} />
-            </ListItemIcon>
-            <ListItemText 
-              primary="View Meeting Minutes" 
-              primaryTypographyProps={{ fontWeight: activeView === 'minutes' ? 'medium' : 'normal' }}
-            />
-          </ListItem>
-        </List>
-      </Box>
-    );
-  };
-
-  // Profile view component
-  const renderProfileView = () => {
-    return (
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Student Profile</Typography>
-        <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="body1" sx={{ mb: 1 }}>
-                <strong>Name</strong>
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {userProfile?.fullName || 'John Doe'}
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="body1" sx={{ mb: 1 }}>
-                <strong>SIN Number</strong>
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {userProfile?.studentId || 'S12345789'}
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="body1" sx={{ mb: 1 }}>
-                <strong>Department</strong>
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {userProfile?.department?.name || 'Computer Science'}
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="body1" sx={{ mb: 1 }}>
-                <strong>Year</strong>
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {userProfile?.year ? `${userProfile.year}${getOrdinalSuffix(userProfile.year)} Year` : 'Third Year'}
-              </Typography>
-            </Grid>
-            <Grid item xs={12}>
-              <Typography variant="body1" sx={{ mb: 1 }}>
-                <strong>Email ID</strong>
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {userProfile?.email || 'john.doe@university.edu'}
-              </Typography>
-            </Grid>
-          </Grid>
-        </Paper>
-
-        <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Submit Feedback</Typography>
-        <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            placeholder="Type your feedback here..."
-            variant="outlined"
-            sx={{ mb: 2 }}
-          />
-          <Button 
-            variant="contained" 
-            sx={{ 
-              bgcolor: '#1a2a5e', 
-              '&:hover': { bgcolor: '#0f1a3e' },
-              py: 1.5
-            }}
-          >
-            Submit Feedback
-          </Button>
-        </Paper>
-
-        <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Schedule</Typography>
         
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
+        <Typography variant="h2" sx={{ mx: 2, fontWeight: 'normal' }}>:</Typography>
         
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Present Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.currentMeetings && meetings.currentMeetings.length > 0 ? (
-              meetings.currentMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.currentMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '305'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No current meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Upcoming Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Upcoming Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.futureMeetings && meetings.futureMeetings.length > 0 ? (
-              meetings.futureMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.futureMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '402'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No upcoming meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        <Box>
-          <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Timer</Typography>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Next Meeting: {nextMeeting ? 
-                `${nextMeeting.meetingDate} - ${nextMeeting.startTime}` : 
-                'January 25, 2024 - 09:00 AM'}
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              gap: 1
-            }}>
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center'
-            }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                {countdownTime.minutes.toString().padStart(2, '0')}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                minutes
-              </Typography>
-            </Box>
-            <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-              :
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center'
-            }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                {countdownTime.seconds.toString().padStart(2, '0')}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                seconds
-              </Typography>
-            </Box>
-          </Box>
-        </Paper>
+        <Box sx={{ textAlign: 'center' }}>
+          <Typography variant="h2" sx={{ fontWeight: 'normal' }}>
+            30
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0 }}>
+            seconds
+          </Typography>
         </Box>
       </Box>
-    );
-  };
+    </Paper>
+  );
 
-  // Feedback view component
-  const renderFeedbackView = () => {
-    return (
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Submit Feedback</Typography>
-        <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            placeholder="Type your feedback here..."
-            variant="outlined"
-            sx={{ mb: 2 }}
-          />
-          <Button 
-            variant="contained" 
-            sx={{ 
-              bgcolor: '#1a2a5e', 
-              '&:hover': { bgcolor: '#0f1a3e' },
-              py: 1.5
-            }}
-          >
-            Submit Feedback
-          </Button>
-        </Paper>
+  // Sidebar component to match the screenshot exactly
+  const Sidebar = () => (
+    <Box 
+      sx={{
+        width: 240,
+        bgcolor: '#1A2137', // Dark navy blue
+        color: 'white',
+        height: '100vh',
+        position: 'fixed',
+        left: 0,
+        top: 0,
+        zIndex: 1
+      }}
+    >
+      <Box sx={{ p: 3, pb: 2, bgcolor: '#2A3147' }}>
+        <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#FFFFFF' }}>
+          Student Dashboard
+        </Typography>
       </Box>
-    );
-  };
+      
+      <List sx={{ p: 0 }}>
+        <ListItem 
+          button 
+          onClick={() => setActiveSection('profile')}
+          sx={{ 
+            py: 2, 
+            pl: 3,
+            bgcolor: activeSection === 'profile' ? '#2A3147' : 'transparent',
+            '&:hover': { bgcolor: '#2A3147' }
+          }}
+        >
+          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+            <PersonIcon />
+          </ListItemIcon>
+          <ListItemText primary="Profile" sx={{ color: '#FFFFFF' }} />
+        </ListItem>
+        
+        <ListItem 
+          button 
+          onClick={() => setActiveSection('feedback')}
+          sx={{ 
+            py: 2, 
+            pl: 3,
+            bgcolor: activeSection === 'feedback' ? '#2A3147' : 'transparent',
+            '&:hover': { bgcolor: '#2A3147' }
+          }}
+        >
+          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+            <FeedbackIcon />
+          </ListItemIcon>
+          <ListItemText primary="Submit Feedback" sx={{ color: '#FFFFFF' }} />
+        </ListItem>
+        
+        <ListItem 
+          button 
+          onClick={() => setActiveSection('meeting-schedule')}
+          sx={{ 
+            py: 2, 
+            pl: 3,
+            bgcolor: activeSection === 'meeting-schedule' ? '#2A3147' : 'transparent',
+            '&:hover': { bgcolor: '#2A3147' }
+          }}
+        >
+          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+            <CalendarTodayIcon />
+          </ListItemIcon>
+          <ListItemText primary="View Meeting Schedule" sx={{ color: '#FFFFFF' }} />
+        </ListItem>
+        
+        <ListItem 
+          button 
+          onClick={() => setActiveSection('meeting-minutes')}
+          sx={{ 
+            py: 2, 
+            pl: 3,
+            bgcolor: activeSection === 'meeting-minutes' ? '#2A3147' : 'transparent',
+            '&:hover': { bgcolor: '#2A3147' }
+          }}
+        >
+          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+            <DescriptionIcon />
+          </ListItemIcon>
+          <ListItemText primary="View Meeting Minutes" sx={{ color: '#FFFFFF' }} />
+        </ListItem>
+      </List>
+      
+      <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
+        <ListItem 
+          button 
+          onClick={handleLogout}
+          sx={{ 
+            py: 2, 
+            pl: 3,
+            '&:hover': { bgcolor: '#2A3147' }
+          }}
+        >
+          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+            <LogoutIcon />
+          </ListItemIcon>
+          <ListItemText primary="Logout" sx={{ color: '#FFFFFF' }} />
+        </ListItem>
+      </Box>
+    </Box>
+  );
 
-  // Schedule view component
-  const renderScheduleView = () => {
-    return (
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Meeting Schedule</Typography>
-        
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Present Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.currentMeetings && meetings.currentMeetings.length > 0 ? (
-              meetings.currentMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.currentMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '305'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No current meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Upcoming Meetings */}
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Upcoming Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.futureMeetings && meetings.futureMeetings.length > 0 ? (
-              meetings.futureMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.futureMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '402'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No upcoming meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        <Box>
-          <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Timer</Typography>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Next Meeting: {nextMeeting ? 
-                `${nextMeeting.meetingDate} - ${nextMeeting.startTime}` : 
-                'January 25, 2024 - 09:00 AM'}
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              gap: 1
-            }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.minutes.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  minutes
-                </Typography>
-              </Box>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                :
-              </Typography>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.seconds.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  seconds
-                </Typography>
-              </Box>
+  return (
+    <Box sx={{ display: 'flex' }}>
+      {/* Custom sidebar that matches the screenshot */}
+      <Sidebar />
+      
+      {/* Main content */}
+      <Box 
+        component="main" 
+        sx={{ 
+          flexGrow: 1, 
+          p: 0, 
+          bgcolor: '#f5f5f7',
+          ml: '240px',
+          minHeight: '100vh',
+          display: 'flex',
+          justifyContent: 'center'
+        }}
+      >
+        <Box sx={{ width: '600px', mt: 2 }}>
+          {activeSection === 'profile' && renderProfile()}
+          {activeSection === 'feedback' && renderFeedback()}
+          {activeSection === 'meeting-schedule' && renderMeetingSchedule()}
+          {activeSection === 'meeting-minutes' && renderMeetingMinutes()}
+          
+          {/* Meeting Timer shown whenever not in meeting minutes view */}
+          {activeSection !== 'meeting-minutes' && (
+            <Box sx={{ mt: 3 }}>
+              {renderMeetingTimer()}
             </Box>
-          </Paper>
+          )}
         </Box>
       </Box>
-    );
-  };
+      
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+};
 
-  // Schedule view component (already defined above)
-  // Removing duplicate declaration
-        
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Present Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.currentMeetings && meetings.currentMeetings.length > 0 ? (
-              meetings.currentMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.currentMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '305'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No current meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Upcoming Meetings */}
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Upcoming Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.futureMeetings && meetings.futureMeetings.length > 0 ? (
-              meetings.futureMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.futureMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '402'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No upcoming meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        <Box>
-          <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Timer</Typography>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Next Meeting: {nextMeeting ? 
-                `${nextMeeting.meetingDate} - ${nextMeeting.startTime}` : 
-                'January 25, 2024 - 09:00 AM'}
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-            alignItems: 'center',
-            gap: 1
-          }}>
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center'
-            }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                {countdownTime.minutes.toString().padStart(2, '0')}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                minutes
-              </Typography>
-            </Box>
-            <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-              :
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              alignItems: 'center'
-            }}>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                {countdownTime.seconds.toString().padStart(2, '0')}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                seconds
-              </Typography>
-            </Box>
-          </Box>
-        </Paper>
-        </Box>
-      </Box>
-    );
-  };
-
-  // Schedule view component
-  const renderScheduleView = () => {
-    return (
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Meeting Schedule</Typography>
-        
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Present Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.currentMeetings && meetings.currentMeetings.length > 0 ? (
-              meetings.currentMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.currentMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '305'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No current meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Upcoming Meetings */}
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Upcoming Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.futureMeetings && meetings.futureMeetings.length > 0 ? (
-              meetings.futureMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.futureMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '402'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No upcoming meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        <Box>
-          <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Timer</Typography>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Next Meeting: {nextMeeting ? 
-                `${nextMeeting.meetingDate} - ${nextMeeting.startTime}` : 
-                'January 25, 2024 - 09:00 AM'}
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              gap: 1
-            }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.minutes.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  minutes
-                </Typography>
-              </Box>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                :
-              </Typography>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.seconds.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  seconds
-                </Typography>
-              </Box>
-            </Box>
-          </Paper>
-        </Box>
-      </Box>
-    );
-  };
-
-  // Schedule view component
-  const renderScheduleView = () => {
-    return (
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Meeting Schedule</Typography>
-        
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Present Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.currentMeetings && meetings.currentMeetings.length > 0 ? (
-              meetings.currentMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.currentMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '305'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No current meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Upcoming Meetings */}
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Upcoming Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.futureMeetings && meetings.futureMeetings.length > 0 ? (
-              meetings.futureMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.futureMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '402'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No upcoming meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        <Box>
-          <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Timer</Typography>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Next Meeting: {nextMeeting ? 
-                `${nextMeeting.meetingDate} - ${nextMeeting.startTime}` : 
-                'January 25, 2024 - 09:00 AM'}
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              gap: 1
-            }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.minutes.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  minutes
-                </Typography>
-              </Box>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                :
-              </Typography>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.seconds.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  seconds
-                </Typography>
-              </Box>
-            </Box>
-          </Paper>
-        </Box>
-      </Box>
-    );
-  };
-
-  // Schedule view component
-  const renderScheduleView = () => {
-    return (
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Meeting Schedule</Typography>
-        
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Present Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.currentMeetings && meetings.currentMeetings.length > 0 ? (
-              meetings.currentMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.currentMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '305'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No current meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Upcoming Meetings */}
-        <Box>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Upcoming Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.futureMeetings && meetings.futureMeetings.length > 0 ? (
-              meetings.futureMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.futureMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '402'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No upcoming meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-
-        <Box>
-          <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 'bold' }}>Meeting Timer</Typography>
-          <Paper elevation={1} sx={{ p: 3, borderRadius: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Next Meeting: {nextMeeting ? 
-                `${nextMeeting.meetingDate} - ${nextMeeting.startTime}` : 
-                'January 25, 2024 - 09:00 AM'}
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              gap: 1
-            }}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.minutes.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  minutes
-                </Typography>
-              </Box>
-              <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                :
-              </Typography>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center'
-              }}>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {countdownTime.seconds.toString().padStart(2, '0')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  seconds
-                </Typography>
-              </Box>
-            </Box>
-          </Paper>
-        </Box>
-      </Box>
-    );
-  };
-
-  // Schedule view component (already defined above)
-  // Removing duplicate declaration
-        
-        {/* Past Meetings */}
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium' }}>Past Meeting Schedule</Typography>
-          <Paper elevation={1} sx={{ borderRadius: 1 }}>
-            {meetings.pastMeetings && meetings.pastMeetings.length > 0 ? (
-              meetings.pastMeetings.map((meeting, index) => (
-                <Box key={meeting.id || index} sx={{ 
-                  p: 2, 
-                  borderBottom: index < meetings.pastMeetings.length - 1 ? '1px solid #eee' : 'none'
-                }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.meetingDate}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        {meeting.startTime}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meeting.title || 'Meeting'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Room sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
-                      <Typography variant="body2" color="text.secondary">
-                        Room {meeting.location || '101'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  No past meetings
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Box>
-        
-        {/* Present Meetings */}
-        <Box sx={{ mb: 3 }}>
+export default StudentDashboard;

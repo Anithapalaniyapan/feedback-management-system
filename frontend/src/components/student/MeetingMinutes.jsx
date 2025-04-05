@@ -2,7 +2,13 @@ import React from 'react';
 import { Typography, Box, Paper, Grid, Card, CardContent, Divider, List, ListItem, ListItemIcon, ListItemText, Button } from '@mui/material';
 import { Event, Assessment, Description } from '@mui/icons-material';
 
-const MeetingMinutes = ({ meetingMinutes, selectedMeeting, handleViewChange }) => {
+const MeetingMinutes = ({ meetingMinutes, selectedMeeting, onViewChange }) => {
+  const handleBack = () => {
+    if (onViewChange) {
+      onViewChange('meetings');
+    }
+  };
+
   return (
     <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -11,11 +17,10 @@ const MeetingMinutes = ({ meetingMinutes, selectedMeeting, handleViewChange }) =
         </Typography>
         <Button 
           variant="outlined" 
-          onClick={() => handleViewChange('dashboard')}
-          startIcon={<Assessment />}
+          onClick={handleBack}
           sx={{ borderColor: '#1a237e', color: '#1a237e' }}
         >
-          Back to Dashboard
+          Back to Meetings
         </Button>
       </Box>
       
@@ -101,7 +106,7 @@ const MeetingMinutes = ({ meetingMinutes, selectedMeeting, handleViewChange }) =
           </Typography>
           <Button 
             variant="contained" 
-            onClick={() => handleViewChange('schedule')}
+            onClick={() => onViewChange('schedule')}
             startIcon={<Event />}
             sx={{ mt: 2, bgcolor: '#1a237e' }}
           >

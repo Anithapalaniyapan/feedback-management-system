@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -44,7 +44,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import DownloadIcon from '@mui/icons-material/Download';
 import LogoutIcon from '@mui/icons-material/Logout';
 import SendIcon from '@mui/icons-material/Send';
+import EventIcon from '@mui/icons-material/Event';
 import { useNavigate } from 'react-router-dom';
+import MeetingManagement from '../student/dashboard/MeetingManagement';
 
 const AcademicDirectorDashboard = () => {
   const theme = useTheme();
@@ -60,6 +62,19 @@ const AcademicDirectorDashboard = () => {
   const [newQuestion, setNewQuestion] = useState('');
   const [editQuestionId, setEditQuestionId] = useState(null);
   const [viewRole, setViewRole] = useState('student');
+  const [meetings, setMeetings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const [newMeeting, setNewMeeting] = useState({
+    title: '',
+    date: '',
+    startTime: '',
+    endTime: '',
+    location: '',
+    department: '',
+    year: ''
+  });
 
   const [currentFeedbacks, setCurrentFeedbacks] = useState([
     { question: 'How satisfied are you with the course content?', department: 'Computer Science', role: 'student', year: '3' },
@@ -80,6 +95,76 @@ const AcademicDirectorDashboard = () => {
       { department: 'Information Technology', year: '2', score: 82 }
     ]
   });
+
+  // Check authentication and role on component mount
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const userRole = localStorage.getItem('userRole');
+    
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    
+    if (userRole !== 'ACADEMIC_DIRECTOR') {
+      setSnackbar({
+        open: true,
+        message: 'You do not have permission to access this dashboard',
+        severity: 'error'
+      });
+      navigate('/login');
+    }
+  }, [navigate]);
+
+  // Fetch meetings
+  useEffect(() => {
+    const fetchMeetings = async () => {
+      setLoading(true);
+      try {
+        const response = await axios.get('http://localhost:8080/api/meetings', {
+          headers: {
+            'x-access-token': localStorage.getItem('token')
+          }
+        });
+        setMeetings(response.data);
+      } catch (error) {
+        console.error('Error in fetchMeetings:', error);
+        setError(error.message);
+        setSnackbar({
+          open: true,
+          message: error.response?.data?.message || 'Failed to load meetings. Please try again later.',
+          severity: 'error'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMeetings();
+  }, []);
+
+  // Fetch departments
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        const response = await axios.get('http://localhost:8080/api/departments', {
+          headers: {
+            'x-access-token': localStorage.getItem('token')
+          }
+        });
+        setDepartments(response.data);
+      } catch (error) {
+        console.error('Error fetching departments:', error);
+        setSnackbar({
+          open: true,
+          message: error.response?.data?.message || 'Failed to load departments',
+          severity: 'error'
+        });
+      }
+    };
+
+    fetchDepartments();
+  }, []);
 
   const handleLogout = () => {
     localStorage.clear();
@@ -161,17 +246,6 @@ const AcademicDirectorDashboard = () => {
 
   const handleSendFeedback = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setSnackbar({
-          open: true,
-          message: 'Please log in to continue',
-          severity: 'error'
-        });
-        // Removed navigation to login page
-        return;
-      }
-
       // Check if there are any questions to send
       if (questions.length === 0) {
         setSnackbar({ open: true, message: 'Please add at least one question', severity: 'error' });
@@ -194,114 +268,40 @@ const AcademicDirectorDashboard = () => {
         return;
       }
 
-      // Get user role from localStorage instead of verifying with API
-      const userRole = localStorage.getItem('userRole');
-      if (userRole !== 'ACADEMIC_DIRECTOR') {
-        setSnackbar({
-          open: true,
-          message: 'Only academic directors can send questions',
-          severity: 'error'
-        });
-        return;
-      }
-
-      // Create an array of promises for each question
-      const questionPromises = questions.map(question => {
-        // Ensure token is properly formatted
-        if (!token.trim()) {
-          throw new Error('Invalid authentication token');
-        }
-
-        // Prepare request payload
-        const payload = {
+      // Create questions
+      for (const question of questions) {
+        await axios.post('http://localhost:8080/api/questions', {
           text: question.question,
           departmentId: parseInt(department),
           role: targetRole,
-          year: targetRole === 'student' ? parseInt(year) : 1 // Always include year, default to 1 if not student
-        };
-        
-        // Only include staffId if role is staff and staff value exists
-        if (targetRole === 'staff' && staff) {
-          payload.staffId = parseInt(staff);
-        }
-
-        // Use axios instead of fetch for consistency
-        return axios.post('http://localhost:8080/api/questions', payload, {
+          year: targetRole === 'student' ? parseInt(year) : null,
+          staffId: targetRole === 'staff' ? parseInt(staff) : null
+        }, {
           headers: {
-            'Content-Type': 'application/json',
-            'x-access-token': token.trim()
+            'x-access-token': localStorage.getItem('token')
           }
         });
-      });
+      }
 
-      // Send all questions
-      await Promise.all(questionPromises);
-
-      // Clear the questions after successful sending
-      setQuestions([]);
-      setNewQuestion('');
-
-      // Show success message
       setSnackbar({
         open: true,
         message: 'Questions sent successfully',
         severity: 'success'
       });
 
-      // Reset form after successful submission
-      setTargetRole('student');
+      // Clear the form
+      setQuestions([]);
+      setNewQuestion('');
       setDepartment('');
       setYear('');
       setStaff('');
     } catch (error) {
-      console.error('Error sending feedback:', error);
-      
-      // Handle axios error responses
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
-        if (error.response.status === 401) {
-          // Authentication error - don't redirect to login
-          localStorage.clear();
-          delete axios.defaults.headers.common['Authorization'];
-          
-          setSnackbar({
-            open: true,
-            message: 'Your session has expired. Please log in again later.',
-            severity: 'error'
-          });
-          
-          // Don't navigate to login page
-        } else if (error.response.status === 403) {
-          // Permission error
-          setSnackbar({
-            open: true,
-            message: 'You do not have permission to perform this action. Please check your role permissions.',
-            severity: 'error'
-          });
-        } else {
-          // Other server errors
-          setSnackbar({
-            open: true,
-            message: error.response.data?.message || 'Failed to send questions. Please try again.',
-            severity: 'error'
-          });
-        }
-      } else if (error.request) {
-        // The request was made but no response was received
-        setSnackbar({
-          open: true,
-          message: 'No response from server. Please check your connection and try again.',
-          severity: 'error'
-        });
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        setSnackbar({
-          open: true,
-          message: error.message || 'Failed to send questions. Please try again.',
-          severity: 'error'
-        });
-      }
+      console.error('Error sending questions:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Failed to send questions. Please try again.',
+        severity: 'error'
+      });
     }
   };
 
@@ -318,7 +318,6 @@ const AcademicDirectorDashboard = () => {
           message: 'Please log in to continue',
           severity: 'error'
         });
-        // Removed navigation to login page
         return;
       }
 
@@ -350,7 +349,6 @@ const AcademicDirectorDashboard = () => {
             message: 'Your session has expired. Please log in again later.',
             severity: 'error'
           });
-          // Removed navigation to login page
           return;
         } else if (response.status === 403) {
           setSnackbar({
@@ -390,330 +388,536 @@ const AcademicDirectorDashboard = () => {
     }
   };
 
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', bgcolor: '#f0f2f5', overflow: 'auto' }}>
-      <AppBar position="static" sx={{ bgcolor: '#1a237e', boxShadow: 3 }}>
-        <Toolbar sx={{ justifyContent: 'space-between' }}>
-          <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-            Academic Director Dashboard
+  const handleAddMeeting = async () => {
+    try {
+      const response = await axios.post('http://localhost:8080/api/meetings', newMeeting, {
+        headers: {
+          'x-access-token': localStorage.getItem('token')
+        }
+      });
+      setMeetings([...meetings, response.data]);
+      setNewMeeting({
+        title: '',
+        date: '',
+        startTime: '',
+        endTime: '',
+        location: '',
+        department: '',
+        year: ''
+      });
+      setSnackbar({
+        open: true,
+        message: 'Meeting added successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: 'Failed to add meeting',
+        severity: 'error'
+      });
+    }
+  };
+
+  const renderMeetingManagement = () => (
+    <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
+      <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 600, mb: 3 }}>
+        Manage Meetings
+      </Typography>
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <Typography variant="subtitle1" gutterBottom>
+            Add New Meeting
           </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Meeting Title"
+                value={newMeeting.title}
+                onChange={(e) => setNewMeeting({ ...newMeeting, title: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Date"
+                type="date"
+                value={newMeeting.date}
+                onChange={(e) => setNewMeeting({ ...newMeeting, date: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Start Time"
+                type="time"
+                value={newMeeting.startTime}
+                onChange={(e) => setNewMeeting({ ...newMeeting, startTime: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="End Time"
+                type="time"
+                value={newMeeting.endTime}
+                onChange={(e) => setNewMeeting({ ...newMeeting, endTime: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Location"
+                value={newMeeting.location}
+                onChange={(e) => setNewMeeting({ ...newMeeting, location: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={newMeeting.department}
+                  onChange={(e) => setNewMeeting({ ...newMeeting, department: e.target.value })}
+                >
+                  <MenuItem value="1">Computer Science</MenuItem>
+                  <MenuItem value="2">Information Technology</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={newMeeting.year}
+                  onChange={(e) => setNewMeeting({ ...newMeeting, year: e.target.value })}
+                >
+                  <MenuItem value="1">1st Year</MenuItem>
+                  <MenuItem value="2">2nd Year</MenuItem>
+                  <MenuItem value="3">3rd Year</MenuItem>
+                  <MenuItem value="4">4th Year</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
           <Button
-            color="inherit"
-            onClick={handleLogout}
-            startIcon={<LogoutIcon />}
-            sx={{ fontWeight: 'medium' }}
+            variant="contained"
+            onClick={handleAddMeeting}
+            sx={{ mt: 2 }}
           >
-            Logout
+            Add Meeting
           </Button>
-        </Toolbar>
-      </AppBar>
-      
-      <Box sx={{ display: 'flex', flexGrow: 1 }}>
-        {/* Sidebar */}
-        <Box sx={{
-          width: 240,
-          flexShrink: 0,
-          bgcolor: theme.palette.background.paper,
-          borderRight: `1px solid ${theme.palette.divider}`,
-          boxShadow: '2px 0 8px rgba(0, 0, 0, 0.1)',
-          display: { xs: 'none', md: 'block' }
-        }}>
-          <Box sx={{ p: 3 }}>
-            <Paper elevation={0} sx={{
-              p: 3,
-              textAlign: 'center',
-              bgcolor: 'transparent',
-              borderRadius: 2
-            }}>
-              <Avatar sx={{
-                width: 100,
-                height: 100,
-                mx: 'auto',
-                mb: 2,
-                bgcolor: theme.palette.primary.main,
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                transition: 'transform 0.3s ease',
-                '&:hover': { transform: 'scale(1.08)' }
-              }} />
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, color: theme.palette.text.primary }}>
-                Academic Director
-              </Typography>
-              <Typography variant="body2" sx={{ color: theme.palette.text.secondary, fontWeight: 500 }}>
-                Engineering
-              </Typography>
-            </Paper>
-          </Box>
-          <Divider sx={{ mx: 2, mb: 2 }} />
-          <List sx={{ px: 2 }}>
-            {[
-              { icon: <QuestionAnswerIcon />, text: 'Send Feedback', tab: 0 },
-              { icon: <VisibilityIcon />, text: 'View Feedback', tab: 1 },
-              { icon: <AssessmentIcon />, text: 'Analysis', tab: 2 },
-              { icon: <DescriptionIcon />, text: 'Reports', tab: 3 }
-            ].map((item, index) => (
-              <ListItem
-                component="div"
-                key={index}
-                selected={activeTab === item.tab}
-                onClick={() => setActiveTab(item.tab)}
-                sx={{
-                  borderRadius: 2,
-                  mb: 1,
-                  transition: 'all 0.2s ease',
-                  '&.Mui-selected': {
-                    bgcolor: theme.palette.primary.main,
-                    color: theme.palette.common.white,
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                    '&:hover': { bgcolor: theme.palette.primary.dark },
-                    '& .MuiListItemIcon-root': { color: theme.palette.common.white }
-                  },
-                  '&:hover': { bgcolor: theme.palette.action.hover, transform: 'translateX(4px)' }
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 40, color: activeTab === item.tab ? 'inherit' : theme.palette.primary.main }}>
-                  {item.icon}
-                </ListItemIcon>
-                <ListItemText primary={item.text} sx={{ '& .MuiTypography-root': { fontWeight: 500 } }} />
+        </Grid>
+        <Grid item xs={12}>
+          <Typography variant="subtitle1" gutterBottom>
+            Upcoming Meetings
+          </Typography>
+          <List>
+            {meetings.map((meeting) => (
+              <ListItem key={meeting.id}>
+                <ListItemText
+                  primary={meeting.title}
+                  secondary={`${meeting.date} | ${meeting.startTime} - ${meeting.endTime} | ${meeting.location}`}
+                />
               </ListItem>
             ))}
           </List>
+        </Grid>
+      </Grid>
+    </Paper>
+  );
+
+  return (
+    <Box sx={{ display: 'flex' }}>
+      {/* Sidebar */}
+      <Box 
+        sx={{
+          width: 240,
+          bgcolor: '#1A2137', // Dark navy blue
+          color: 'white',
+          height: '100vh',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          zIndex: 1
+        }}
+      >
+        <Box sx={{ p: 3, pb: 2, bgcolor: '#2A3147' }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#FFFFFF' }}>
+            Academic Director
+          </Typography>
         </Box>
         
-        {/* Mobile navigation */}
-        <Box sx={{ display: { xs: 'block', md: 'none' }, width: '100%', mb: 2, mt: 2 }}>
-          <Tabs
-            value={activeTab}
-            onChange={handleTabChange}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{
-              px: 2,
-              '& .MuiTab-root': {
-                minWidth: 'auto',
-                px: 2,
-                py: 1,
-                borderRadius: 2,
-                mx: 0.5,
-                fontWeight: 500,
-                color: theme.palette.text.secondary,
-                '&.Mui-selected': {
-                  color: theme.palette.primary.main,
-                  fontWeight: 600,
-                }
-              },
-              '& .MuiTabs-indicator': {
-                height: 3,
-                borderRadius: 1.5,
-              }
+        <List sx={{ p: 0 }}>
+          <ListItem 
+            button 
+            onClick={() => setActiveTab(0)}
+            sx={{ 
+              py: 2, 
+              pl: 3,
+              bgcolor: activeTab === 0 ? '#2A3147' : 'transparent',
+              '&:hover': { bgcolor: '#2A3147' }
             }}
           >
-            <Tab icon={<QuestionAnswerIcon />} label="Send" />
-            <Tab icon={<VisibilityIcon />} label="View" />
-            <Tab icon={<AssessmentIcon />} label="Analysis" />
-            <Tab icon={<DescriptionIcon />} label="Reports" />
-          </Tabs>
-        </Box>
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              <DashboardIcon />
+            </ListItemIcon>
+            <ListItemText primary="Dashboard" sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+          
+          <ListItem 
+            button 
+            onClick={() => setActiveTab(1)}
+            sx={{ 
+              py: 2, 
+              pl: 3,
+              bgcolor: activeTab === 1 ? '#2A3147' : 'transparent',
+              '&:hover': { bgcolor: '#2A3147' }
+            }}
+          >
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              <QuestionAnswerIcon />
+            </ListItemIcon>
+            <ListItemText primary="Manage Questions" sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+          
+          <ListItem 
+            button 
+            onClick={() => setActiveTab(2)}
+            sx={{ 
+              py: 2, 
+              pl: 3,
+              bgcolor: activeTab === 2 ? '#2A3147' : 'transparent',
+              '&:hover': { bgcolor: '#2A3147' }
+            }}
+          >
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              <EventIcon />
+            </ListItemIcon>
+            <ListItemText primary="Manage Meetings" sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+          
+          <ListItem 
+            button 
+            onClick={() => setActiveTab(3)}
+            sx={{ 
+              py: 2, 
+              pl: 3,
+              bgcolor: activeTab === 3 ? '#2A3147' : 'transparent',
+              '&:hover': { bgcolor: '#2A3147' }
+            }}
+          >
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              <AssessmentIcon />
+            </ListItemIcon>
+            <ListItemText primary="View Reports" sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+        </List>
         
-        {/* Main content */}
-        <Box sx={{ flexGrow: 1, p: 3, width: { xs: '100%', md: 'calc(100% - 240px)' } }}>
+        <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
+          <ListItem 
+            button 
+            onClick={handleLogout}
+            sx={{ 
+              py: 2, 
+              pl: 3,
+              '&:hover': { bgcolor: '#2A3147' }
+            }}
+          >
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              <LogoutIcon />
+            </ListItemIcon>
+            <ListItemText primary="Logout" sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+        </Box>
+      </Box>
+      
+      {/* Main content */}
+      <Box 
+        component="main" 
+        sx={{ 
+          flexGrow: 1, 
+          p: 0, 
+          bgcolor: '#f5f5f7',
+          ml: '240px',
+          minHeight: '100vh',
+          display: 'flex',
+          justifyContent: 'center'
+        }}
+      >
+        <Box sx={{ width: '600px', mt: 2, mb: 2 }}>
+          {/* Dashboard Tab */}
           {activeTab === 0 && (
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
-              <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 600, mb: 3 }}>
-                Send Feedback Questions
-              </Typography>
+            <Paper sx={{ p: 4, borderRadius: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Dashboard Overview</Typography>
+              
               <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Target Role</InputLabel>
-                    <Select value={targetRole} onChange={(e) => setTargetRole(e.target.value)}>
-                      <MenuItem value="student">Student</MenuItem>
-                      <MenuItem value="staff">Staff</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Department</InputLabel>
-                    <Select value={department} onChange={(e) => setDepartment(e.target.value)}>
-                      <MenuItem value="1">Computer Science</MenuItem>
-                      <MenuItem value="2">Information Technology</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                {targetRole === 'student' && (
-                  <Grid item xs={12} md={6}>
-                    <FormControl fullWidth>
-                      <InputLabel>Year</InputLabel>
-                      <Select value={year} onChange={(e) => setYear(e.target.value)}>
-                        <MenuItem value="1">1st Year</MenuItem>
-                        <MenuItem value="2">2nd Year</MenuItem>
-                        <MenuItem value="3">3rd Year</MenuItem>
-                        <MenuItem value="4">4th Year</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                )}
-                {targetRole === 'staff' && (
-                  <Grid item xs={12} md={6}>
-                    <FormControl fullWidth>
-                      <InputLabel>Staff</InputLabel>
-                      <Select value={staff} onChange={(e) => setStaff(e.target.value)}>
-                        <MenuItem value="1">Staff 1</MenuItem>
-                        <MenuItem value="2">Staff 2</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                )}
-              </Grid>
-
-              <Box sx={{ mt: 3 }}>
-                <TextField
-                  fullWidth
-                  label="New Question"
-                  value={newQuestion}
-                  onChange={(e) => setNewQuestion(e.target.value)}
-                  multiline
-                  rows={2}
-                  sx={{ mb: 2 }}
-                />
-                <Button
-                  variant="contained"
-                  onClick={editQuestionId ? handleUpdateQuestion : handleAddQuestion}
-                  startIcon={editQuestionId ? <EditIcon /> : <SendIcon />}
-                  sx={{ bgcolor: theme.palette.primary.main, '&:hover': { bgcolor: theme.palette.primary.dark } }}
-                >
-                  {editQuestionId ? 'Update Question' : 'Add Question'}
-                </Button>
-              </Box>
-
-              <List sx={{ mt: 3 }}>
-                {questions.map((q) => (
-                  <ListItem
-                    key={q.id}
-                    secondaryAction={
-                      <Box>
-                        <IconButton onClick={() => handleEditQuestion(q.id)} color="primary">
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton onClick={() => handleDeleteQuestion(q.id)} color="error">
-                          <DeleteIcon />
-                        </IconButton>
+                <Grid item xs={12}>
+                  <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
+                    <CardContent>
+                      <Typography variant="h6" sx={{ mb: 2 }}>Feedback Statistics</Typography>
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>
+                          Total Submissions
+                        </Typography>
+                        <Typography variant="h4" sx={{ color: '#1A2137' }}>
+                          {feedbackStats.totalSubmissions}
+                        </Typography>
                       </Box>
-                    }
-                    sx={{ bgcolor: '#f9f9f9', borderRadius: 1, mb: 1 }}
-                  >
-                    <ListItemText primary={q.question} />
-                  </ListItem>
+                      <Box>
+                        <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>
+                          Overall Score
+                        </Typography>
+                        <Typography variant="h4" sx={{ color: '#1A2137' }}>
+                          {feedbackStats.overallScore}%
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                
+                {feedbackStats.departmentWiseScores.map((dept, index) => (
+                  <Grid item xs={12} sm={6} key={index}>
+                    <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
+                      <CardContent>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                          {dept.department}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#666' }}>
+                          Year {dept.year}
+                        </Typography>
+                        <Typography variant="h5" sx={{ mt: 1, color: '#1A2137' }}>
+                          {dept.score}%
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
                 ))}
-              </List>
-
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleSendFeedback}
-                disabled={!department || questions.length === 0}
-                sx={{ mt: 3, px: 4, py: 1.2, fontWeight: 500 }}
-              >
-                Send Feedback
-              </Button>
+                
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                    <Button 
+                      variant="contained" 
+                      startIcon={<DownloadIcon />}
+                      onClick={handleDownloadReport}
+                      sx={{ 
+                        bgcolor: '#1A2137', 
+                        '&:hover': { bgcolor: '#2A3147' },
+                        fontWeight: 'medium',
+                        px: 3,
+                        py: 1
+                      }}
+                    >
+                      Download Complete Report
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
             </Paper>
           )}
-
+          
+          {/* Manage Questions Tab */}
           {activeTab === 1 && (
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
-              <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 600, mb: 3 }}>
-                Current Feedback Questions
-              </Typography>
+            <Paper sx={{ p: 4, borderRadius: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Manage Feedback Questions</Typography>
+              
               <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Filter by Role</InputLabel>
-                    <Select value={viewRole} onChange={(e) => setViewRole(e.target.value)}>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth variant="outlined" sx={{ mb: 2 }}>
+                    <InputLabel>Target Role</InputLabel>
+                    <Select
+                      value={targetRole}
+                      onChange={(e) => setTargetRole(e.target.value)}
+                      label="Target Role"
+                    >
                       <MenuItem value="student">Student</MenuItem>
                       <MenuItem value="staff">Staff</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth variant="outlined" sx={{ mb: 2 }}>
+                    <InputLabel>Department</InputLabel>
+                    <Select
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      label="Department"
+                    >
+                      <MenuItem value="Computer Science">Computer Science</MenuItem>
+                      <MenuItem value="Information Technology">Information Technology</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                
+                {targetRole === 'student' && (
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth variant="outlined" sx={{ mb: 2 }}>
+                      <InputLabel>Year</InputLabel>
+                      <Select
+                        value={year}
+                        onChange={(e) => setYear(e.target.value)}
+                        label="Year"
+                      >
+                        <MenuItem value="1">Year 1</MenuItem>
+                        <MenuItem value="2">Year 2</MenuItem>
+                        <MenuItem value="3">Year 3</MenuItem>
+                        <MenuItem value="4">Year 4</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                )}
+                
+                {targetRole === 'staff' && (
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth variant="outlined" sx={{ mb: 2 }}>
+                      <InputLabel>Staff Member</InputLabel>
+                      <Select
+                        value={staff}
+                        onChange={(e) => setStaff(e.target.value)}
+                        label="Staff Member"
+                      >
+                        <MenuItem value="Staff 1">Staff 1</MenuItem>
+                        <MenuItem value="Staff 2">Staff 2</MenuItem>
+                        <MenuItem value="Staff 3">Staff 3</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                )}
+                
                 <Grid item xs={12}>
-                  <List sx={{ bgcolor: '#f9f9f9', borderRadius: 2, p: 2 }}>
-                    {currentFeedbacks.map((feedback, index) => (
-                      <ListItem key={index} sx={{ borderBottom: '1px solid #eee', py: 2 }}>
-                        <ListItemText
-                          primary={<Typography variant="subtitle1" sx={{ fontWeight: 500 }}>{feedback.question}</Typography>}
-                          secondary={`${feedback.department} - ${feedback.role === 'student' ? `Year ${feedback.year}` : feedback.staff}`}
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
+                  <TextField
+                    fullWidth
+                    variant="outlined"
+                    label="Add Question"
+                    value={newQuestion}
+                    onChange={(e) => setNewQuestion(e.target.value)}
+                    sx={{ mb: 2 }}
+                  />
+                  
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {editQuestionId ? (
+                      <Button
+                        variant="contained"
+                        startIcon={<EditIcon />}
+                        onClick={handleUpdateQuestion}
+                        sx={{ 
+                          bgcolor: '#1A2137', 
+                          '&:hover': { bgcolor: '#2A3147' }
+                        }}
+                      >
+                        Update Question
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="contained"
+                        onClick={handleAddQuestion}
+                        sx={{ 
+                          bgcolor: '#1A2137', 
+                          '&:hover': { bgcolor: '#2A3147' }
+                        }}
+                      >
+                        Add Question
+                      </Button>
+                    )}
+                  </Box>
                 </Grid>
               </Grid>
-            </Paper>
-          )}
-
-          {activeTab === 2 && (
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
-              <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 600, mb: 3 }}>
-                Feedback Analysis
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={4}>
-                  <Card sx={{ height: '100%', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>Total Submissions</Typography>
-                      <Typography variant="h3" color="primary">{feedbackStats.totalSubmissions}</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Card sx={{ height: '100%', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>Overall Score</Typography>
-                      <Typography variant="h3" color="primary">{feedbackStats.overallScore}%</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={12}>
-                  <Card sx={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>Department-wise Scores</Typography>
-                      <List>
-                        {feedbackStats.departmentWiseScores.map((item, index) => (
-                          <ListItem key={index} sx={{ borderBottom: '1px solid #eee' }}>
-                            <ListItemText 
-                              primary={`${item.department} - Year ${item.year}`} 
-                              secondary={`Score: ${item.score}%`}
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-            </Paper>
-          )}
-
-          {activeTab === 3 && (
-            <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
-              <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 600, mb: 3 }}>
-                Download Reports
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
+              
+              <Divider sx={{ my: 3 }} />
+              
+              <Typography variant="h6" sx={{ mb: 2 }}>Current Questions</Typography>
+              
+              {questions.length > 0 ? (
+                <List>
+                  {questions.map((q) => (
+                    <ListItem key={q.id} sx={{ bgcolor: '#f8f9fa', mb: 1, borderRadius: 0 }}>
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Typography variant="body1">{q.question}</Typography>
+                      </Box>
+                      <IconButton 
+                        onClick={() => handleEditQuestion(q.id)}
+                        sx={{ color: '#1A2137' }}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton 
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        sx={{ color: '#1A2137' }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </ListItem>
+                  ))}
+                </List>
+              ) : (
+                <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 2 }}>
+                  No questions added yet.
+                </Typography>
+              )}
+              
+              {questions.length > 0 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
                   <Button
                     variant="contained"
-                    startIcon={<DownloadIcon />}
-                    onClick={handleDownloadReport}
-                    sx={{ px: 4, py: 1.5, fontWeight: 500, bgcolor: theme.palette.primary.main, '&:hover': { bgcolor: theme.palette.primary.dark } }}
+                    startIcon={<SendIcon />}
+                    onClick={handleSendFeedback}
+                    sx={{ 
+                      bgcolor: '#1A2137', 
+                      '&:hover': { bgcolor: '#2A3147' }
+                    }}
                   >
-                    Download Feedback Report
+                    Send Feedback Questions
                   </Button>
+                </Box>
+              )}
+            </Paper>
+          )}
+          
+          {/* Manage Meetings Tab */}
+          {activeTab === 2 && (
+            <Paper sx={{ p: 4, borderRadius: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Manage Meetings</Typography>
+              {renderMeetingManagement()}
+            </Paper>
+          )}
+          
+          {/* View Reports Tab */}
+          {activeTab === 3 && (
+            <Paper sx={{ p: 4, borderRadius: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>View Reports</Typography>
+              
+              <Grid container spacing={3}>
+                <Grid item xs={12}>
+                  <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
+                    <CardContent>
+                      <Typography variant="h6">Feedback Reports</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Download complete feedback reports
+                      </Typography>
+                      <Button 
+                        variant="contained" 
+                        startIcon={<DownloadIcon />}
+                        onClick={handleDownloadReport}
+                        sx={{ 
+                          bgcolor: '#1A2137', 
+                          '&:hover': { bgcolor: '#2A3147' }
+                        }}
+                      >
+                        Download Report
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </Grid>
               </Grid>
             </Paper>
           )}
         </Box>
       </Box>
+      
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}

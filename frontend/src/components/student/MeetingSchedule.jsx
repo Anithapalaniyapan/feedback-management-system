@@ -3,6 +3,41 @@ import { Typography, Box, Paper, Tabs, Tab, Table, TableBody, TableCell, TableCo
 import { Event } from '@mui/icons-material';
 
 const MeetingSchedule = ({ meetings, handleViewChange }) => {
+  const formatDate = (dateStr) => {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).replace(/\//g, '-');
+  };
+
+  const formatTime = (timeStr) => {
+    return timeStr;
+  };
+
+  const renderMeetingList = (meetingList) => {
+    return meetingList.map((meeting) => (
+      <Box
+        key={meeting.id}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          py: 1.5
+        }}
+      >
+        <Box>
+          <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+            {formatDate(meeting.meetingDate)}
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            {formatTime(meeting.startTime)}
+          </Typography>
+        </Box>
+      </Box>
+    ));
+  };
+
   return (
     <Paper sx={{ p: 3, borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
