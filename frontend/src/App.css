@@ -1,8 +1,63 @@
+/* Reset default styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  background-color: #f0f4f8;
+  min-height: 100vh;
+}
+
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
+  min-height: 100vh;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+/* Login page specific styles */
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.login-form-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
   padding: 2rem;
-  text-align: center;
+}
+
+/* Material UI overrides */
+.MuiButton-contained {
+  text-transform: none !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+
+.MuiOutlinedInput-root {
+  border-radius: 8px !important;
+}
+
+.MuiTextField-root .MuiOutlinedInput-root {
+  background-color: #f8fafc;
+}
+
+/* Make the login form responsive */
+@media (max-width: 600px) {
+  .login-page {
+    flex-direction: column;
+  }
+  
+  .login-form-container {
+    padding: 1rem;
+  }
 }
 
 .logo {

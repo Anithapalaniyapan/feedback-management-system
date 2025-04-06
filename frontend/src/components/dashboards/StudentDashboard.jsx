@@ -75,8 +75,11 @@ const StudentDashboard = () => {
       return;
     }
     
-    if (userRole !== 'STUDENT' && userRole !== 'ROLE_STUDENT') {
-      console.log('User role is not STUDENT:', userRole);
+    // Normalize the user role for case-insensitive comparison
+    const normalizedUserRole = (userRole || '').replace('ROLE_', '').toUpperCase();
+    
+    if (normalizedUserRole !== 'STUDENT') {
+      console.log('User role is not STUDENT:', userRole, 'Normalized:', normalizedUserRole);
       setSnackbar({
         open: true,
         message: 'You do not have permission to access this dashboard',
@@ -88,12 +91,13 @@ const StudentDashboard = () => {
     
     console.log('Student authorized, loading student dashboard...');
     
-    // Store student role in localStorage for meeting filtering
+    // Store student role in localStorage for meeting filtering (lowercase for consistency with filtering logic)
     localStorage.setItem('userRole', 'student');
     
     setLoading(true); // Set loading state while data is being fetched
     fetchUserProfile();
-  }, []);
+    fetchMeetings(); // Fetch meetings data after authorization is confirmed
+  }, [navigate]);
 
   // Fetch user profile
   const fetchUserProfile = async () => {
@@ -167,7 +171,66 @@ const StudentDashboard = () => {
     }
   };
 
-  // Fetch meetings
+  // Fetch meetings - defined outside useEffect to avoid recreating it on each render
+  const fetchMeetings = async () => {
+    setLoading(true);
+    try {
+      // First try fetching from API
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await axios.get('http://localhost:8080/api/meetings', {
+        headers: {
+          'x-access-token': token
+        }
+      });
+      
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        // Sort meetings by date
+        const sortedMeetings = response.data.sort((a, b) => {
+          const dateA = new Date(a.date || a.meetingDate || '');
+          const dateB = new Date(b.date || b.meetingDate || '');
+          return dateA - dateB;
+        });
+        
+        console.log('API returned meeting data:', sortedMeetings);
+        setMeetings(sortedMeetings);
+        
+        // Find next upcoming meeting for timer
+        const now = new Date();
+        const upcomingMeeting = sortedMeetings.find(m => {
+          const meetingDate = new Date(m.date || m.meetingDate || '');
+          return !isNaN(meetingDate.getTime()) && meetingDate > now;
+        });
+        
+        if (upcomingMeeting) {
+          setTimerFromMeeting(upcomingMeeting);
+        }
+      } else {
+        console.log('API returned no meetings or invalid data, trying localStorage');
+        // API returned no meetings, try localStorage
+        if (!checkLocalStorageForMeetings()) {
+          console.log('No valid meetings in localStorage either, using hardcoded data');
+          useHardcodedMeetings();
+        }
+      }
+    } catch (error) {
+      console.error('Error in fetchMeetings:', error);
+      console.log('API request failed, trying localStorage');
+      
+      // Try localStorage
+      if (!checkLocalStorageForMeetings()) {
+        console.log('No valid meetings in localStorage either, using hardcoded data');
+        useHardcodedMeetings();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch meetings when component mounts
   useEffect(() => {
     // First, try to restore timer data from localStorage
     try {
@@ -186,283 +249,6 @@ const StudentDashboard = () => {
     } catch (error) {
       console.error('Error restoring timer data from localStorage:', error);
     }
-
-    const fetchMeetings = async () => {
-      setLoading(true);
-      try {
-        // First try fetching from API
-        const response = await axios.get('http://localhost:8080/api/meetings', {
-          headers: {
-            'x-access-token': localStorage.getItem('token')
-          }
-        });
-        
-        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-          // Sort meetings by date
-          const sortedMeetings = response.data.sort((a, b) => {
-            const dateA = new Date(a.date || a.meetingDate || '');
-            const dateB = new Date(b.date || b.meetingDate || '');
-            return dateA - dateB;
-          });
-          
-          console.log('API returned meeting data:', sortedMeetings);
-          setMeetings(sortedMeetings);
-          
-          // Find next upcoming meeting for timer
-          const now = new Date();
-          const upcomingMeeting = sortedMeetings.find(m => {
-            const meetingDate = new Date(m.date || m.meetingDate || '');
-            return !isNaN(meetingDate.getTime()) && meetingDate > now;
-          });
-          
-          if (upcomingMeeting) {
-            setTimerFromMeeting(upcomingMeeting);
-          }
-        } else {
-          console.log('API returned no meetings or invalid data, trying localStorage');
-          // API returned no meetings, try localStorage
-          if (!checkLocalStorageForMeetings()) {
-            console.log('No valid meetings in localStorage either, using hardcoded data');
-            useHardcodedMeetings();
-          }
-        }
-      } catch (error) {
-        console.error('Error in fetchMeetings:', error);
-        console.log('API request failed, trying localStorage');
-        
-        // Try localStorage
-        if (!checkLocalStorageForMeetings()) {
-          console.log('No valid meetings in localStorage either, using hardcoded data');
-          useHardcodedMeetings();
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    // Function to check localStorage for meetings data
-    const checkLocalStorageForMeetings = () => {
-      console.log('Checking localStorage for meetings data');
-      const storedMeetings = localStorage.getItem('submittedMeetings');
-      
-      if (storedMeetings) {
-        try {
-          let parsedMeetings = JSON.parse(storedMeetings);
-          console.log('Found meetings in localStorage:', parsedMeetings);
-          
-          // Ensure parsedMeetings is an array
-          if (!Array.isArray(parsedMeetings)) {
-            console.error('Parsed meetings is not an array:', parsedMeetings);
-            return false;
-          }
-          
-          // If it's an empty array, return false to use hardcoded data
-          if (parsedMeetings.length === 0) {
-            console.log('Parsed meetings array is empty');
-            return false;
-          }
-          
-          // Check for any undefined items in the array
-          parsedMeetings = parsedMeetings.filter(meeting => meeting !== null && meeting !== undefined);
-          
-          console.log('Using meetings from localStorage, total:', parsedMeetings.length);
-          
-          // Filter meetings for students, but be case-insensitive
-          const studentMeetings = parsedMeetings.filter(meeting => {
-            // Check if role exists and is 'student' (case-insensitive)
-            const role = (meeting.role || '').toLowerCase();
-            const isStudent = role.includes('student');
-            console.log(`Meeting role: "${meeting.role}", isStudent: ${isStudent}`);
-            return isStudent;
-          });
-          
-          console.log(`Filtered ${studentMeetings.length} student meetings from ${parsedMeetings.length} total meetings`);
-          
-          // If we found student meetings, use them - otherwise use all meetings (in case role filtering fails)
-          const meetingsToUse = studentMeetings.length > 0 ? studentMeetings : parsedMeetings;
-          
-          if (meetingsToUse.length > 0) {
-            setMeetings(meetingsToUse);
-            
-            // Set timer for next meeting
-            const now = new Date();
-            const sorted = [...meetingsToUse].sort((a, b) => {
-              // Handle both date and meetingDate formats
-              const dateA = new Date(a.date || a.meetingDate || '');
-              const dateB = new Date(b.date || b.meetingDate || '');
-              
-              // Skip invalid dates
-              if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) return 0;
-              
-              return dateA - dateB;
-            });
-            
-            // Find next upcoming meeting
-            const upcomingMeeting = sorted.find(m => {
-              const meetingDate = new Date(m.date || m.meetingDate || '');
-              return !isNaN(meetingDate.getTime()) && meetingDate > now;
-            });
-            
-            if (upcomingMeeting) {
-              setTimerFromMeeting(upcomingMeeting);
-            }
-            
-            return true; // Successfully loaded meetings from localStorage
-          }
-        } catch (parseError) {
-          console.error('Error parsing localStorage meetings:', parseError);
-        }
-      }
-      
-      console.log('No valid meetings found in localStorage, using hardcoded data');
-      return false;
-    };
-    
-    // Helper function to use hardcoded meeting data
-    const useHardcodedMeetings = () => {
-      console.log('Using hardcoded example meeting data');
-      const exampleMeetings = [
-        {
-          id: '1',
-          title: 'Course Feedback Session',
-          date: '2024-06-15', // Updated to future date
-          startTime: '10:00',
-          endTime: '11:30',
-          role: 'student',
-          department: 'Computer Science'
-        },
-        {
-          id: '2',
-          title: 'Semester Planning',
-          date: '2024-05-10', // Updated to future date
-          startTime: '14:00',
-          endTime: '15:30',
-          role: 'student',
-          department: 'Computer Science'
-        },
-        {
-          id: '3',
-          title: 'Current Issues Discussion',
-          date: '2024-06-20', // Updated to future date
-          startTime: '11:30',
-          endTime: '13:00',
-          role: 'student',
-          department: 'Computer Science'
-        },
-        {
-          id: '4',
-          title: 'Future Curriculum Planning',
-          date: '2024-06-25', // Updated to future date
-          startTime: '09:00',
-          endTime: '10:30',
-          role: 'student',
-          department: 'Computer Science'
-        },
-        {
-          id: '5',
-          title: 'Department Meeting',
-          date: '2024-06-30', // Updated to future date
-          startTime: '15:30',
-          endTime: '17:00',
-          role: 'student',
-          department: 'Computer Science'
-        }
-      ];
-      
-      setMeetings(exampleMeetings);
-      
-      // Set timer for next meeting
-      const now = new Date();
-      const upcomingMeeting = exampleMeetings.find(m => new Date(m.date) > now);
-      
-      if (upcomingMeeting) {
-        setTimerFromMeeting(upcomingMeeting);
-      }
-    };
-    
-    // Helper to set timer from a meeting
-    const setTimerFromMeeting = (meeting) => {
-      if (!meeting) {
-        console.error('No meeting data provided to setTimerFromMeeting');
-        return;
-      }
-      
-      try {
-        console.log('Setting timer from meeting:', meeting);
-        
-        // Handle different date and time formats
-        let meetingDate;
-        
-        // Try to parse the meeting date
-        if (meeting.date || meeting.meetingDate) {
-          meetingDate = new Date(meeting.date || meeting.meetingDate);
-        } else {
-          console.error('Meeting has no date information:', meeting);
-          return;
-        }
-        
-        // Check if date is valid
-        if (isNaN(meetingDate.getTime())) {
-          console.error('Invalid meeting date:', meeting.date || meeting.meetingDate);
-          return;
-        }
-        
-        // Store original date string for recalculation
-        const originalDate = meetingDate.toISOString().split('T')[0];
-        
-        // Add time to the date
-        const [hours, minutes] = (meeting.startTime || '00:00').split(':').map(Number);
-        
-        meetingDate.setHours(hours || 0);
-        meetingDate.setMinutes(minutes || 0);
-        meetingDate.setSeconds(0);
-        
-        const now = new Date();
-        const diffMs = meetingDate - now;
-        
-        // If meeting is in the past, don't show negative countdown
-        if (diffMs <= 0) {
-          console.log('Meeting is in the past, showing 0 countdown');
-          const nextMeetingData = {
-            date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-            time: meeting.startTime || '00:00',
-            minutesLeft: 0,
-            secondsLeft: 0,
-            meetingId: meeting.id,
-            originalDate: originalDate // Store for recalculation
-          };
-          
-          setNextMeeting(nextMeetingData);
-          
-          // Store in localStorage for persistence between sessions
-          localStorage.setItem('nextMeetingData', JSON.stringify(nextMeetingData));
-          return;
-        }
-        
-        const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-        const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
-        
-        console.log(`Countdown set to ${diffMins}m ${diffSecs}s for meeting at ${meetingDate.toString()}`);
-        
-        const nextMeetingData = {
-          date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-          time: meeting.startTime || '00:00',
-          minutesLeft: diffMins,
-          secondsLeft: diffSecs,
-          meetingId: meeting.id,
-          originalDate: originalDate // Store for recalculation
-        };
-        
-        setNextMeeting(nextMeetingData);
-        
-        // Store in localStorage for persistence between sessions
-        localStorage.setItem('nextMeetingData', JSON.stringify(nextMeetingData));
-      } catch (error) {
-        console.error('Error setting timer from meeting:', error);
-      }
-    };
-
-    fetchMeetings();
   }, []);
 
   // Fetch questions for feedback

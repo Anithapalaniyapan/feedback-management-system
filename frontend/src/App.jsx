@@ -37,6 +37,17 @@ const App = () => {
     const normalizedUserRole = (userRole || reduxUserRole || '').replace('ROLE_', '').toUpperCase();
     const normalizedAllowedRole = allowedRole?.toUpperCase();
     
+    // Add debugging logs
+    console.log('ProtectedRoute check:', {
+      userRole,
+      reduxUserRole,
+      normalizedUserRole,
+      allowedRole,
+      normalizedAllowedRole,
+      isAuthenticated: isAuthenticated || reduxIsAuthenticated,
+      hasAccess: normalizedUserRole === normalizedAllowedRole
+    });
+    
     return (isAuthenticated || reduxIsAuthenticated) && normalizedUserRole === normalizedAllowedRole ? 
       element : 
       <Navigate to="/login" />;

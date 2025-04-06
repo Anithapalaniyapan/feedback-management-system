@@ -39,16 +39,26 @@ export const login = createAsyncThunk(
       // Get the first role
       const userRole = roles[0];
       
-      // Store in localStorage
+      // Normalize the role (remove ROLE_ prefix if present and convert to uppercase)
+      const normalizedRole = userRole.replace('ROLE_', '').toUpperCase();
+      
+      // Log role information for debugging
+      console.log('Login successful. Role info:', { 
+        original: userRole, 
+        normalized: normalizedRole 
+      });
+      
+      // Store in localStorage - store both original and normalized roles
       localStorage.setItem('token', accessToken);
-      localStorage.setItem('userRole', userRole);
+      localStorage.setItem('userRole', normalizedRole);
+      localStorage.setItem('originalUserRole', userRole); // Keep the original for reference
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('userData', JSON.stringify(userData));
       
       // Set axios default authorization header
       axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
       
-      return { token: accessToken, userRole, userData };
+      return { token: accessToken, userRole: normalizedRole, userData };
     } catch (error) {
       console.error('Login error:', error);
       
