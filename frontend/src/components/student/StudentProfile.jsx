@@ -9,8 +9,8 @@ const StudentProfile = ({ userProfile }) => {
       </Typography>
       
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 3 }}>
-        <Avatar
-          sx={{
+          <Avatar
+            sx={{ 
             width: 56,
             height: 56,
             bgcolor: '#1a2a5e',
@@ -18,7 +18,7 @@ const StudentProfile = ({ userProfile }) => {
           }}
         >
           {userProfile?.fullName?.[0] || 'J'}
-        </Avatar>
+          </Avatar>
 
         <Box sx={{ flexGrow: 1 }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
@@ -37,7 +37,7 @@ const StudentProfile = ({ userProfile }) => {
               </Typography>
               <Typography variant="body1" sx={{ mt: 0.5 }}>
                 {userProfile?.sinNumber || 'ST23456789'}
-              </Typography>
+            </Typography>
             </Box>
 
             <Box>
@@ -46,17 +46,17 @@ const StudentProfile = ({ userProfile }) => {
               </Typography>
               <Typography variant="body1" sx={{ mt: 0.5 }}>
                 {userProfile?.department || 'Computer Science'}
-              </Typography>
-            </Box>
-
+                </Typography>
+              </Box>
+              
             <Box>
               <Typography color="textSecondary" variant="body2">
                 Year
               </Typography>
               <Typography variant="body1" sx={{ mt: 0.5 }}>
                 {userProfile?.year ? `${userProfile.year}${getOrdinalSuffix(userProfile.year)} Year` : 'Third Year'}
-              </Typography>
-            </Box>
+                </Typography>
+              </Box>
 
             <Box sx={{ gridColumn: '1 / -1' }}>
               <Typography color="textSecondary" variant="body2">

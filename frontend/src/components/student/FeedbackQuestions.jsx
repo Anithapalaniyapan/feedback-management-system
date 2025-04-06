@@ -60,14 +60,14 @@ const FeedbackQuestions = ({ questions, ratings, onRatingChange }) => {
           <Box key={question.id} sx={{ mb: 3 }}>
             <Typography variant="body1" gutterBottom>
               {question.text}
-            </Typography>
-            <Rating
+                </Typography>
+                <Rating
               value={ratings[question.id] || 0}
-              onChange={(event, newValue) => {
+                  onChange={(event, newValue) => {
                 onRatingChange(question.id, newValue);
-              }}
-            />
-          </Box>
+                  }}
+                />
+              </Box>
         ))}
         <Button
           variant="contained"
@@ -88,7 +88,7 @@ const FeedbackQuestions = ({ questions, ratings, onRatingChange }) => {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+        </Box>
   );
 };
 

@@ -26,7 +26,8 @@ import {
   Avatar,
   Snackbar,
   Alert,
-  Divider
+  Divider,
+  LinearProgress
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
@@ -40,10 +41,11 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import SendIcon from '@mui/icons-material/Send';
 import EventIcon from '@mui/icons-material/Event';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import BarChartIcon from '@mui/icons-material/BarChart';
 
 const ExecutiveDirectorDashboard = () => {
   const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const [activeSection, setActiveSection] = useState('profile');
   const [userProfile, setUserProfile] = useState({
     name: 'Dr. Sarah Johnson',
     position: 'Executive Director',
@@ -60,6 +62,36 @@ const ExecutiveDirectorDashboard = () => {
     severity: 'info'
   });
 
+  // Mock student question performance data
+  const [studentQuestionPerformance, setStudentQuestionPerformance] = useState([
+    { id: 1, question: 'Question 1', score: 92, color: '#1a73e8' },
+    { id: 2, question: 'Question 2', score: 72, color: '#00c853' },
+    { id: 3, question: 'Question 3', score: 54, color: '#ffca28' },
+    { id: 4, question: 'Question 4', score: 63, color: '#f44336' },
+  ]);
+
+  // Mock staff question performance data
+  const [staffQuestionPerformance, setStaffQuestionPerformance] = useState([
+    { id: 1, question: 'Question 1', score: 85, color: '#1a73e8' },
+    { id: 2, question: 'Question 2', score: 65, color: '#00c853' },
+    { id: 3, question: 'Question 3', score: 70, color: '#ffca28' },
+    { id: 4, question: 'Question 4', score: 50, color: '#f44336' },
+  ]);
+
+  // Add performance summary stats
+  const [performanceSummary, setPerformanceSummary] = useState({
+    studentOverall: 78,
+    staffOverall: 65
+  });
+
+  // Define sidebar tabs
+  const tabs = [
+    { id: 'profile', label: "Profile", icon: <PersonIcon /> },
+    { id: 'meetings', label: "Meetings", icon: <EventIcon /> },
+    { id: 'analytics', label: "Analytics", icon: <BarChartIcon /> },
+    { id: 'reports', label: "Reports", icon: <AssessmentIcon /> }
+  ];
+
   // Check authentication and role on component mount
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -70,7 +102,7 @@ const ExecutiveDirectorDashboard = () => {
       return;
     }
     
-    if (userRole !== 'EXECUTIVE_DIRECTOR') {
+    if (userRole !== 'EXECUTIVE_DIRECTOR' && userRole !== 'ROLE_EXECUTIVE_DIRECTOR') {
       setSnackbar({
         open: true,
         message: 'You do not have permission to access this dashboard',
@@ -171,15 +203,121 @@ const ExecutiveDirectorDashboard = () => {
     setSnackbar({ ...snackbar, open: false });
   };
 
+  // Render student performance chart
+  const renderStudentPerformanceChart = () => (
+    <Box sx={{ mt: 4, mb: 4 }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 3 }}>Student Performance %</Typography>
+      
+      <Box sx={{ height: '400px', bgcolor: '#f5f5f7', p: 3, borderRadius: 1 }}>
+        <Grid container spacing={2}>
+          {/* Y-axis labels */}
+          <Grid item xs={1}>
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Typography>100</Typography>
+              <Typography>80</Typography>
+              <Typography>60</Typography>
+              <Typography>40</Typography>
+              <Typography>20</Typography>
+              <Typography>0</Typography>
+            </Box>
+          </Grid>
+          
+          {/* Chart bars */}
+          <Grid item xs={11}>
+            <Box sx={{ height: '300px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around' }}>
+              {studentQuestionPerformance.map((item) => (
+                <Box key={item.id} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '20%' }}>
+                  <Box 
+                    sx={{ 
+                      width: '80%', 
+                      height: `${item.score * 3}px`, 
+                      bgcolor: item.color,
+                      borderTopLeftRadius: 4,
+                      borderTopRightRadius: 4,
+                    }} 
+                  />
+                  <Typography sx={{ mt: 1 }}>{item.question}</Typography>
+                </Box>
+              ))}
+            </Box>
+            
+            {/* X-axis line */}
+            <Box sx={{ 
+              height: '1px', 
+              bgcolor: '#ddd', 
+              width: '100%', 
+              mt: 1 
+            }} />
+          </Grid>
+        </Grid>
+      </Box>
+    </Box>
+  );
+
+  // Render staff performance chart
+  const renderStaffPerformanceChart = () => (
+    <Box sx={{ mt: 4, mb: 4 }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 3 }}>Staff Performance %</Typography>
+      
+      <Box sx={{ height: '400px', bgcolor: '#f5f5f7', p: 3, borderRadius: 1 }}>
+        <Grid container spacing={2}>
+          {/* Y-axis labels */}
+          <Grid item xs={1}>
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Typography>100</Typography>
+              <Typography>80</Typography>
+              <Typography>60</Typography>
+              <Typography>40</Typography>
+              <Typography>20</Typography>
+              <Typography>0</Typography>
+            </Box>
+          </Grid>
+          
+          {/* Chart bars */}
+          <Grid item xs={11}>
+            <Box sx={{ height: '300px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around' }}>
+              {staffQuestionPerformance.map((item) => (
+                <Box key={item.id} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '20%' }}>
+                  <Box 
+                    sx={{ 
+                      width: '80%', 
+                      height: `${item.score * 3}px`, 
+                      bgcolor: item.color,
+                      borderTopLeftRadius: 4,
+                      borderTopRightRadius: 4,
+                    }} 
+                  />
+                  <Typography sx={{ mt: 1 }}>{item.question}</Typography>
+                </Box>
+              ))}
+            </Box>
+            
+            {/* X-axis line */}
+            <Box sx={{ 
+              height: '1px', 
+              bgcolor: '#ddd', 
+              width: '100%', 
+              mt: 1 
+            }} />
+          </Grid>
+        </Grid>
+      </Box>
+    </Box>
+  );
+
   // Render profile section
   const renderProfile = () => (
-    <Paper sx={{ p: 4, borderRadius: 0 }}>
+    <Paper sx={{ 
+      p: 4, 
+      borderRadius: 0,
+      position: 'relative'
+    }}>
       <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Executive Director Profile</Typography>
       
       <Box sx={{ 
         display: 'flex',
         alignItems: 'flex-start',
-        mb: 4
+        mb: 0
       }}>
         <Avatar sx={{ width: 76, height: 76, bgcolor: '#1A2137', mr: 4 }}>
           {userProfile.name ? userProfile.name.charAt(0) : 'S'}
@@ -244,10 +382,10 @@ const ExecutiveDirectorDashboard = () => {
           </Card>
         </Grid>
         
-        <Grid item xs={12}>
+                <Grid item xs={12}>
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <Button 
-              variant="contained" 
+                  <Button
+                    variant="contained"
               startIcon={<DownloadIcon />}
               onClick={handleDownloadReport}
               sx={{ 
@@ -259,7 +397,7 @@ const ExecutiveDirectorDashboard = () => {
               }}
             >
               Download Complete Report
-            </Button>
+                  </Button>
           </Box>
         </Grid>
       </Grid>
@@ -268,43 +406,87 @@ const ExecutiveDirectorDashboard = () => {
 
   // Render meetings section
   const renderMeetings = () => (
-    <Paper sx={{ p: 4, borderRadius: 0 }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>All Meetings</Typography>
+    <Paper sx={{ 
+      p: 4, 
+      borderRadius: 0,
+      border: '1px dashed #ccc'
+    }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Meeting Schedule</Typography>
       
-      {loading ? (
-        <Typography align="center">Loading meetings...</Typography>
-      ) : error ? (
-        <Typography color="error" align="center">{error}</Typography>
-      ) : meetings.length === 0 ? (
-        <Typography align="center">No meetings found</Typography>
+      {meetings.length === 0 ? (
+        <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
+          No meetings scheduled yet.
+        </Typography>
       ) : (
-        <Grid container spacing={2}>
-          {meetings.map((meeting) => (
+        <Grid container spacing={3}>
+          {meetings.map(meeting => (
             <Grid item xs={12} key={meeting.id}>
-              <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0 }}>
-                <Typography variant="h6" gutterBottom>{meeting.title}</Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#666' }}>Date</Typography>
-                    <Typography variant="body2">{new Date(meeting.date).toLocaleDateString()}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#666' }}>Time</Typography>
-                    <Typography variant="body2">{meeting.startTime} - {meeting.endTime}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#666' }}>Location</Typography>
-                    <Typography variant="body2">{meeting.location}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#666' }}>Department</Typography>
-                    <Typography variant="body2">{meeting.department?.name || 'N/A'}</Typography>
-                  </Grid>
-                </Grid>
-              </Box>
+              <Card sx={{ borderRadius: 0, mb: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {meeting.title}
+                  </Typography>
+                  
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+                    <Typography variant="body2" sx={{ 
+                      color: 'primary.main',
+                      bgcolor: '#e3f2fd',
+                      px: 1.5,
+                      py: 0.5,
+                      borderRadius: 1
+                    }}>
+                      {`Date: ${meeting.date}`}
+                    </Typography>
+                    
+                    <Typography variant="body2" sx={{ 
+                      color: 'success.main',
+                      bgcolor: '#e8f5e9',
+                      px: 1.5,
+                      py: 0.5,
+                      borderRadius: 1
+                    }}>
+                      {`Time: ${meeting.startTime} - ${meeting.endTime}`}
+                    </Typography>
+                    
+                    <Typography variant="body2" sx={{ 
+                      color: '#ff6d00',
+                      bgcolor: '#fff3e0',
+                      px: 1.5,
+                      py: 0.5,
+                      borderRadius: 1
+                    }}>
+                      {`Role: ${meeting.role === 'student' ? 'Student' : 'Staff'}`}
+                    </Typography>
+                    
+                    <Typography variant="body2" sx={{ 
+                      color: '#6a1b9a',
+                      bgcolor: '#f3e5f5',
+                      px: 1.5,
+                      py: 0.5,
+                      borderRadius: 1
+                    }}>
+                      {`Department: ${meeting.department === '1' ? 'Computer Science' : 
+                                     meeting.department === '2' ? 'Information Technology' : 
+                                     meeting.department}`}
+                    </Typography>
+                    
+                    {meeting.role === 'student' && (
+                      <Typography variant="body2" sx={{ 
+                        color: '#00695c',
+                        bgcolor: '#e0f2f1',
+                        px: 1.5,
+                        py: 0.5,
+                        borderRadius: 1
+                      }}>
+                        {`Year: ${meeting.year}`}
+                      </Typography>
+                    )}
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
           ))}
-        </Grid>
+                </Grid>
       )}
     </Paper>
   );
@@ -315,15 +497,15 @@ const ExecutiveDirectorDashboard = () => {
       <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Reports</Typography>
       
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+                <Grid item xs={12}>
           <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
             <CardContent>
               <Typography variant="h6" gutterBottom>Comprehensive Feedback Report</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Download a complete report with feedback data from all departments and meetings
               </Typography>
-              <Button 
-                variant="contained" 
+                  <Button
+                    variant="contained"
                 startIcon={<DownloadIcon />}
                 onClick={handleDownloadReport}
                 sx={{ 
@@ -332,12 +514,12 @@ const ExecutiveDirectorDashboard = () => {
                 }}
               >
                 Download Report
-              </Button>
+                  </Button>
             </CardContent>
           </Card>
-        </Grid>
+                </Grid>
         
-        <Grid item xs={12}>
+                <Grid item xs={12}>
           <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
             <CardContent>
               <Typography variant="h6" gutterBottom>Department-wise Report</Typography>
@@ -355,8 +537,8 @@ const ExecutiveDirectorDashboard = () => {
                   ))}
                 </Select>
               </FormControl>
-              <Button 
-                variant="contained" 
+                  <Button
+                    variant="contained"
                 startIcon={<DownloadIcon />}
                 sx={{ 
                   bgcolor: '#1A2137', 
@@ -364,9 +546,62 @@ const ExecutiveDirectorDashboard = () => {
                 }}
               >
                 Download Department Report
-              </Button>
+                  </Button>
             </CardContent>
           </Card>
+                </Grid>
+              </Grid>
+            </Paper>
+  );
+
+  // Render analytics section with performance charts
+  const renderAnalytics = () => (
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Performance Analytics</Typography>
+      
+      <Grid container spacing={3}>
+        {/* Student Performance Section */}
+        <Grid item xs={12}>
+          <Typography variant="h6" sx={{ mt: 2, mb: 2, fontWeight: 'bold' }}>Student Performance</Typography>
+        </Grid>
+        
+        <Grid item xs={12} sm={6}>
+          <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                Student Overall Performance
+              </Typography>
+              <Typography variant="h5" sx={{ mt: 1, color: '#1A2137' }}>
+                {performanceSummary.studentOverall}%
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12}>
+          {renderStudentPerformanceChart()}
+        </Grid>
+        
+        {/* Staff Performance Section */}
+        <Grid item xs={12}>
+          <Typography variant="h6" sx={{ mt: 2, mb: 2, fontWeight: 'bold' }}>Staff Performance</Typography>
+          </Grid>
+        
+        <Grid item xs={12} sm={6}>
+          <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                Staff Overall Performance
+              </Typography>
+              <Typography variant="h5" sx={{ mt: 1, color: '#1A2137' }}>
+                {performanceSummary.staffOverall}%
+              </Typography>
+            </CardContent>
+          </Card>
+          </Grid>
+        
+        <Grid item xs={12}>
+          {renderStaffPerformanceChart()}
         </Grid>
       </Grid>
     </Paper>
@@ -393,76 +628,31 @@ const ExecutiveDirectorDashboard = () => {
       </Box>
       
       <List sx={{ p: 0 }}>
-        <ListItem 
-          button 
-          onClick={() => setActiveSection('profile')}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'profile' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <PersonIcon />
-          </ListItemIcon>
-          <ListItemText primary="Profile" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-        
-        <ListItem 
-          button 
-          onClick={() => setActiveSection('dashboard')}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'dashboard' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <DashboardIcon />
-          </ListItemIcon>
-          <ListItemText primary="Dashboard" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-        
-        <ListItem 
-          button 
-          onClick={() => setActiveSection('meetings')}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'meetings' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <EventIcon />
-          </ListItemIcon>
-          <ListItemText primary="Meetings" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-        
-        <ListItem 
-          button 
-          onClick={() => setActiveSection('reports')}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'reports' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <AssessmentIcon />
-          </ListItemIcon>
-          <ListItemText primary="Reports" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
+        {tabs.map(tab => (
+          <ListItem
+            key={tab.id}
+            button 
+            onClick={() => setActiveSection(tab.id)}
+            sx={{
+              py: 2, 
+              pl: 3,
+              bgcolor: activeSection === tab.id ? '#2A3147' : 'transparent',
+              '&:hover': { bgcolor: '#2A3147' }
+            }}
+          >
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              {tab.icon}
+            </ListItemIcon>
+            <ListItemText primary={tab.label} sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+        ))}
       </List>
       
       <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
         <ListItem 
           button 
           onClick={handleLogout}
-          sx={{ 
+          sx={{
             py: 2, 
             pl: 3,
             '&:hover': { bgcolor: '#2A3147' }
@@ -495,11 +685,11 @@ const ExecutiveDirectorDashboard = () => {
           justifyContent: 'center'
         }}
       >
-        <Box sx={{ width: '600px', mt: 2, mb: 2 }}>
+        <Box sx={{ width: '1010px', mt: 2, mb: 2 }}>
           {activeSection === 'profile' && renderProfile()}
-          {activeSection === 'dashboard' && renderDashboard()}
           {activeSection === 'meetings' && renderMeetings()}
           {activeSection === 'reports' && renderReports()}
+          {activeSection === 'analytics' && renderAnalytics()}
         </Box>
       </Box>
       
