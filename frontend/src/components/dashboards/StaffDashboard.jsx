@@ -17,7 +17,8 @@ import {
   Snackbar,
   Alert,
   Card,
-  CardContent
+  CardContent,
+  Container
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import FeedbackIcon from '@mui/icons-material/Feedback';
@@ -29,6 +30,9 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EventIcon from '@mui/icons-material/Event';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import API from '../../api/axiosConfig';
 
 // Import Redux actions
 import { fetchUserProfile } from '../../redux/slices/userSlice';
@@ -55,53 +59,141 @@ const StaffDashboard = () => {
   const { activeSection, snackbar } = useSelector(state => state.ui);
   const { loading: meetingsLoading, error: meetingsError, nextMeeting } = useSelector(state => state.meetings);
 
+  // Set initial active section
+  useEffect(() => {
+    dispatch(setActiveSection('profile'));
+  }, [dispatch]);
+
   // Check authentication and role on component mount
   useEffect(() => {
-        if (!token) {
-      console.log('No token found, redirecting to login');
-      navigate('/login');
-          return;
-        }
-        
-    if (userRole !== 'STAFF' && userRole !== 'ROLE_STAFF') {
-      console.log('User role is not STAFF:', userRole);
-      dispatch(showSnackbar({
-        message: 'You do not have permission to access this dashboard',
-        severity: 'error'
-      }));
-      navigate('/login');
-          return;
-        }
-    
-    console.log('Loading staff profile...');
-    // Fetch user profile and meetings
-    dispatch(fetchUserProfile());
-    
-    // Make sure the userRole is stored in localStorage for meeting filtering
-    localStorage.setItem('userRole', 'staff');
-    
-    // Fetch meetings with staff role filter
-    dispatch(fetchMeetings());
-    
-    // Debug localStorage for meetings
-    const storedMeetings = localStorage.getItem('submittedMeetings');
-    if (storedMeetings) {
-      try {
-        const parsedMeetings = JSON.parse(storedMeetings);
-        console.log('Staff Dashboard: Found meetings in localStorage:', parsedMeetings.length);
-        
-        // Check for staff meetings
-        const staffMeetings = parsedMeetings.filter(meeting => 
-          (meeting.role || '').toLowerCase() === 'staff'
-        );
-        console.log(`Staff Dashboard: Found ${staffMeetings.length} staff meetings out of ${parsedMeetings.length} total`);
-      } catch (error) {
-        console.error('Staff Dashboard: Error parsing localStorage meetings:', error);
+    const checkAuthAndLoadData = async () => {
+      if (!token) {
+        console.log('No token found, redirecting to login');
+        navigate('/login');
+        return;
       }
-    } else {
-      console.log('Staff Dashboard: No meetings found in localStorage');
-    }
+      
+      // Normalize and check role - be flexible with role format
+      const normalizedRole = userRole ? userRole.toLowerCase() : '';
+      const isStaffRole = 
+        normalizedRole === 'staff' || 
+        normalizedRole === 'faculty' || 
+        normalizedRole === 'teacher' ||
+        normalizedRole.includes('staff');
+      
+      if (!isStaffRole) {
+        console.log(`Invalid role for staff dashboard: ${userRole}`);
+        dispatch(showSnackbar({
+          message: 'You do not have permission to access this dashboard',
+          severity: 'error'
+        }));
+        navigate('/login');
+        return;
+      }
+      
+      console.log('Authentication successful for Staff Dashboard');
+      
+      try {
+        // Fetch user profile
+        await dispatch(fetchUserProfile()).unwrap();
+        
+        // Make sure the userRole is stored in localStorage for meeting filtering
+        localStorage.setItem('userRole', 'staff');
+        
+        // Load meetings
+        await loadMeetingsFromStorage();
+        await dispatch(fetchMeetings());
+        
+        // Debug localStorage for meetings
+        const storedMeetings = localStorage.getItem('meetings');
+        if (storedMeetings) {
+          try {
+            const parsedMeetings = JSON.parse(storedMeetings);
+            console.log('Staff Dashboard: Found meetings in localStorage:', parsedMeetings.length);
+            
+            // Check for staff meetings
+            const staffMeetings = parsedMeetings.filter(meeting => 
+              (meeting.role || '').toLowerCase() === 'staff'
+            );
+            console.log(`Staff Dashboard: Found ${staffMeetings.length} staff meetings out of ${parsedMeetings.length} total`);
+          } catch (error) {
+            console.error('Staff Dashboard: Error parsing localStorage meetings:', error);
+          }
+        } else {
+          console.log('Staff Dashboard: No meetings found in localStorage');
+        }
+      } catch (error) {
+        console.error('Error initializing staff dashboard:', error);
+        // If Redux fails, try direct API call
+        await fetchUserProfileDirectly();
+      }
+    };
+
+    checkAuthAndLoadData();
   }, [dispatch, navigate, token, userRole]);
+
+  // Direct API call as fallback for profile loading
+  const fetchUserProfileDirectly = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+        console.error('No token found for direct profile fetch');
+          return;
+        }
+        
+      console.log('Attempting direct API call to fetch staff profile');
+      
+      // First try to get user data from login response stored in localStorage
+      const userData = localStorage.getItem('userData');
+      if (userData) {
+        try {
+          const parsedUserData = JSON.parse(userData);
+          console.log('Found stored user data:', parsedUserData);
+          
+          // Update the Redux store with this data
+          dispatch({
+            type: 'user/setUserProfile',
+            payload: parsedUserData
+          });
+          
+          return; // If we successfully loaded from localStorage, don't make API call
+        } catch (e) {
+          console.error('Error parsing stored user data:', e);
+        }
+      }
+      
+      // Call the API directly using the global API instance
+      const response = await API.get('/users/profile');
+      
+      console.log('Profile API response received:', response.data);
+      
+      if (response.data && Object.keys(response.data).length > 0) {
+        // Update Redux store with the profile data
+        dispatch({
+          type: 'user/setUserProfile',
+          payload: response.data
+        });
+        
+        // Store the data in localStorage for future use
+        localStorage.setItem('userData', JSON.stringify(response.data));
+      }
+    } catch (error) {
+      console.error('Error in direct profile fetch:', error);
+      console.error('Error response:', error.response?.data);
+      
+      // Set a default profile in case of error
+      dispatch({
+        type: 'user/setUserProfile',
+        payload: {
+          name: 'Staff Member',
+          staffId: 'SF123456',
+          department: { name: 'Engineering' },
+          position: 'Lecturer',
+          email: 'staff@university.edu'
+        }
+      });
+    }
+  };
 
   // Effect to show success/error messages for feedback submission
   useEffect(() => {
@@ -166,6 +258,210 @@ const StaffDashboard = () => {
 
   const handleCloseSnackbar = () => {
     dispatch(hideSnackbar());
+  };
+
+  // Add dedicated function to load meetings from localStorage
+  const loadMeetingsFromStorage = () => {
+    try {
+      // Try both possible localStorage keys for meetings
+      const storedMeetings = localStorage.getItem('submittedMeetings') || localStorage.getItem('meetings');
+      
+      if (!storedMeetings) {
+        console.log('No meetings found in localStorage');
+        return false;
+      }
+      
+      const parsedMeetings = JSON.parse(storedMeetings);
+      
+      if (!Array.isArray(parsedMeetings) || parsedMeetings.length === 0) {
+        console.log('No valid meetings found in localStorage');
+        return false;
+      }
+      
+      console.log('Found', parsedMeetings.length, 'meetings in localStorage');
+      
+      // Filter staff meetings
+      const staffMeetings = parsedMeetings.filter(meeting => {
+        // Check if role exists and is 'staff' (case-insensitive)
+        const role = (meeting.role || '').toLowerCase();
+        return role === 'staff' || role.includes('staff');
+      });
+      
+      console.log('Filtered', staffMeetings.length, 'staff meetings from', parsedMeetings.length, 'total meetings');
+      
+      if (staffMeetings.length > 0) {
+        // Sort and categorize meetings
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        
+        const currentMeetings = [];
+        const pastMeetings = [];
+        const futureMeetings = [];
+        
+        staffMeetings.forEach(meeting => {
+          const meetingDate = new Date(meeting.date || meeting.meetingDate);
+          meetingDate.setHours(0, 0, 0, 0);
+          
+          if (meetingDate.getTime() === today.getTime()) {
+            currentMeetings.push(meeting);
+          } else if (meetingDate < today) {
+            pastMeetings.push(meeting);
+          } else {
+            futureMeetings.push(meeting);
+          }
+        });
+        
+        // Update Redux store
+        dispatch({
+          type: 'meetings/setMeetings',
+          payload: {
+            pastMeetings,
+            currentMeetings,
+            futureMeetings
+          }
+        });
+        
+        // Also update timer if we have an upcoming meeting
+        if (futureMeetings.length > 0) {
+          // Sort future meetings by date
+          const sortedMeetings = [...futureMeetings].sort((a, b) => {
+            const dateA = new Date(a.date || a.meetingDate || '');
+            const dateB = new Date(b.date || b.meetingDate || '');
+            return dateA - dateB;
+          });
+          
+          const nextMeeting = sortedMeetings[0];
+          const meetingDate = new Date(`${nextMeeting.date || nextMeeting.meetingDate}T${nextMeeting.startTime || '00:00'}`);
+          
+          if (!isNaN(meetingDate.getTime())) {
+            const diffMs = Math.max(0, meetingDate - now);
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffSecs = Math.floor((diffMs % 60000) / 1000);
+            
+            const timerData = {
+              id: nextMeeting.id,
+              title: nextMeeting.title,
+              date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+              time: nextMeeting.startTime,
+              minutesLeft: diffMins,
+              secondsLeft: diffSecs,
+              originalDate: nextMeeting.date || nextMeeting.meetingDate,
+              role: 'staff'
+            };
+            
+            // Update staff timer data
+            localStorage.setItem('staffNextMeetingData', JSON.stringify(timerData));
+          }
+        }
+        
+        dispatch(showSnackbar({
+          message: `Loaded ${staffMeetings.length} staff meetings`,
+          severity: 'success'
+        }));
+        
+        return true;
+      }
+      
+      console.log('No staff meetings found in localStorage');
+      return false;
+    } catch (error) {
+      console.error('Error loading meetings from localStorage:', error);
+      return false;
+    }
+  };
+
+  // Add sortAndSetMeetings function
+  const sortAndSetMeetings = (meetings) => {
+    if (!Array.isArray(meetings)) {
+      console.error('Invalid meetings data received:', meetings);
+      return;
+    }
+
+    // Sort meetings by date
+    const sortedMeetings = meetings.sort((a, b) => {
+      const dateA = new Date(a.date || a.meetingDate || '');
+      const dateB = new Date(b.date || b.meetingDate || '');
+      return dateA - dateB;
+    });
+
+    // Update state with sorted meetings
+    dispatch({
+      type: 'meetings/setMeetings',
+      payload: {
+        pastMeetings: sortedMeetings.filter(m => {
+          const meetingDate = new Date(m.date || m.meetingDate || '');
+          return meetingDate < new Date();
+        }),
+        currentMeetings: sortedMeetings.filter(m => {
+          const meetingDate = new Date(m.date || m.meetingDate || '');
+          const today = new Date();
+          return meetingDate.toDateString() === today.toDateString();
+        }),
+        futureMeetings: sortedMeetings.filter(m => {
+          const meetingDate = new Date(m.date || m.meetingDate || '');
+          return meetingDate > new Date();
+        })
+      }
+    });
+
+    // Store in localStorage
+    try {
+      localStorage.setItem('meetings', JSON.stringify(sortedMeetings));
+      localStorage.setItem('submittedMeetings', JSON.stringify(sortedMeetings));
+    } catch (error) {
+      console.error('Error storing meetings in localStorage:', error);
+    }
+  };
+
+  // Update fetchMeetings function
+  const fetchMeetings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No token found');
+        return;
+      }
+
+      // Get staff's department from profile
+      const userProfile = JSON.parse(localStorage.getItem('userData'));
+      const staffDepartment = userProfile?.department;
+
+      // First try to load from localStorage
+      const storedMeetings = localStorage.getItem('meetings');
+      if (storedMeetings) {
+        try {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+            // Filter meetings based on staff's department
+            const filteredMeetings = parsedMeetings.filter(meeting => 
+              meeting.role?.toLowerCase() === 'staff' &&
+              meeting.department === staffDepartment
+            );
+            sortAndSetMeetings(filteredMeetings);
+            return;
+          }
+        } catch (error) {
+          console.error('Error parsing stored meetings:', error);
+        }
+      }
+
+      // If no valid meetings in localStorage, fetch from API
+      const response = await API.get('/meetings');
+      if (response.data && Array.isArray(response.data)) {
+        // Filter meetings based on staff's department
+        const filteredMeetings = response.data.filter(meeting => 
+          meeting.role?.toLowerCase() === 'staff' &&
+          meeting.department === staffDepartment
+        );
+        sortAndSetMeetings(filteredMeetings);
+      }
+    } catch (error) {
+      console.error('Error fetching meetings from API:', error);
+      dispatch(showSnackbar({
+        message: 'Error loading meetings. Please try again.',
+        severity: 'error'
+      }));
+    }
   };
 
   // Render staff profile section
@@ -277,83 +573,9 @@ const StaffDashboard = () => {
 
   // Render meeting schedule section
   const renderMeetingSchedule = () => {
-    // Debug reload function
+    // Existing debug reload function
     const handleDebugReload = () => {
-      try {
-        const storedMeetings = localStorage.getItem('submittedMeetings');
-        console.log('Debug: Checking localStorage for meetings:', storedMeetings);
-        
-        if (storedMeetings) {
-          const parsedMeetings = JSON.parse(storedMeetings);
-          
-          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-            console.log('Debug: Found valid meetings in localStorage:', parsedMeetings);
-            
-            // Filter meetings for staff role only
-            const staffMeetings = parsedMeetings.filter(meeting => {
-              // Check if role exists and is 'staff' (case-insensitive)
-              const role = (meeting.role || '').toLowerCase();
-              const isStaff = role.includes('staff');
-              console.log(`Meeting role: "${meeting.role}", isStaff: ${isStaff}`);
-              return isStaff;
-            });
-            
-            console.log(`Filtered ${staffMeetings.length} staff meetings from ${parsedMeetings.length} total meetings`);
-            
-            if (staffMeetings.length > 0) {
-              // Update meetings in state
-              dispatch(fetchMeetings());
-              
-              // Also directly set meetings to ensure immediate UI update
-              // This will be overwritten if the Redux action succeeds
-              const now = new Date();
-              const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-              
-              const currentMeetings = [];
-              const pastMeetings = [];
-              const futureMeetings = [];
-              
-              staffMeetings.forEach(meeting => {
-                const meetingDate = new Date(meeting.date || meeting.meetingDate);
-                meetingDate.setHours(0, 0, 0, 0);
-                
-                if (meetingDate.getTime() === today.getTime()) {
-                  currentMeetings.push(meeting);
-                } else if (meetingDate < today) {
-                  pastMeetings.push(meeting);
-                } else {
-                  futureMeetings.push(meeting);
-                }
-              });
-              
-              // Show success message
-              dispatch(showSnackbar({
-                message: 'Reloaded staff meetings from localStorage',
-                severity: 'success'
-              }));
-              
-              return;
-            } else {
-              dispatch(showSnackbar({
-                message: 'No staff meetings found in localStorage',
-                severity: 'warning'
-              }));
-              return;
-            }
-          }
-        }
-        
-        dispatch(showSnackbar({
-          message: 'No valid meetings found in localStorage',
-          severity: 'warning'
-        }));
-    } catch (error) {
-        console.error('Debug: Error reloading meetings:', error);
-        dispatch(showSnackbar({
-          message: 'Error reloading meetings from localStorage',
-          severity: 'error'
-        }));
-      }
+      loadMeetingsFromStorage();
     };
     
     // Filter displayed meetings by role to show only staff meetings
@@ -369,165 +591,79 @@ const StaffDashboard = () => {
       ) : []
     };
 
-  return (
+    return (
       <Paper sx={{ p: 4, borderRadius: 0 }}>
         <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Meeting Schedule</Typography>
         
-        {/* Debug button */}
-        <Box sx={{ mb: 2 }}>
-          <Button
-            variant="outlined" 
-            size="small"
-            onClick={handleDebugReload}
-            sx={{ mb: 2, fontSize: '0.7rem' }}
-          >
-            Debug: Reload from localStorage
-          </Button>
+        {/* Past Meetings */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom>Past Meetings</Typography>
+          {filteredMeetings.pastMeetings.length > 0 ? (
+            filteredMeetings.pastMeetings.map((meeting) => (
+              <Box key={meeting.id} sx={{ mb: 2 }}>
+                <Typography variant="subtitle1">{meeting.title}</Typography>
+                <Typography variant="body2">Date: {meeting.date}</Typography>
+                <Typography variant="body2">Time: {meeting.startTime} - {meeting.endTime}</Typography>
+              </Box>
+            ))
+          ) : (
+            <Typography variant="body2">No past meetings</Typography>
+          )}
         </Box>
         
-        {meetingsLoading ? (
-          <Typography align="center">Loading meetings...</Typography>
-        ) : meetingsError ? (
-          <Typography align="center" color="error">{meetingsError}</Typography>
-        ) : (!filteredMeetings.pastMeetings?.length && !filteredMeetings.currentMeetings?.length && !filteredMeetings.futureMeetings?.length) ? (
-          <Typography align="center">No staff meetings found. Please contact the Academic Director to schedule meetings for staff.</Typography>
-        ) : (
-          <>
-            {/* Today's meetings */}
-            {filteredMeetings.currentMeetings && filteredMeetings.currentMeetings.length > 0 && (
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" gutterBottom>Today's Meetings</Typography>
-                
-                {filteredMeetings.currentMeetings.map(meeting => (
-                  <Box key={meeting.id} sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0, mb: 1 }}>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{meeting.title}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {new Date(meeting.meetingDate).toLocaleDateString()} - {meeting.startTime}
-              </Typography>
-                    <Button 
-                      size="small" 
-                      startIcon={<QuestionAnswerIcon />} 
-                      onClick={() => handleFetchQuestions(meeting.id)}
-                      sx={{ mt: 1, color: '#1A2137' }}
-                    >
-                      Provide Feedback
-                    </Button>
-                  </Box>
-                ))}
+        {/* Current Meetings */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom>Today's Meetings</Typography>
+          {filteredMeetings.currentMeetings.length > 0 ? (
+            filteredMeetings.currentMeetings.map((meeting) => (
+              <Box key={meeting.id} sx={{ mb: 2 }}>
+                <Typography variant="subtitle1">{meeting.title}</Typography>
+                <Typography variant="body2">Time: {meeting.startTime} - {meeting.endTime}</Typography>
               </Box>
-            )}
-            
-            {/* Past meetings */}
-            {filteredMeetings.pastMeetings && filteredMeetings.pastMeetings.length > 0 && (
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h6" gutterBottom>Past Meetings</Typography>
-                
-                {filteredMeetings.pastMeetings.map(meeting => (
-                  <Box key={meeting.id} sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0, mb: 1 }}>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{meeting.title}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {new Date(meeting.meetingDate).toLocaleDateString()} - {meeting.startTime}
-                  </Typography>
-                    <Button
-                      size="small" 
-                      startIcon={<QuestionAnswerIcon />} 
-                      onClick={() => handleFetchQuestions(meeting.id)}
-                      sx={{ mt: 1, color: '#1A2137' }}
-                    >
-                      Provide Feedback
-                    </Button>
-                  </Box>
-                ))}
+            ))
+          ) : (
+            <Typography variant="body2">No meetings scheduled for today</Typography>
+          )}
+        </Box>
+        
+        {/* Future Meetings */}
+        <Box>
+          <Typography variant="h6" gutterBottom>Upcoming Meetings</Typography>
+          {filteredMeetings.futureMeetings.length > 0 ? (
+            filteredMeetings.futureMeetings.map((meeting) => (
+              <Box key={meeting.id} sx={{ mb: 2 }}>
+                <Typography variant="subtitle1">{meeting.title}</Typography>
+                <Typography variant="body2">Date: {meeting.date}</Typography>
+                <Typography variant="body2">Time: {meeting.startTime} - {meeting.endTime}</Typography>
               </Box>
-            )}
-            
-            {/* Upcoming meetings */}
-            {filteredMeetings.futureMeetings && filteredMeetings.futureMeetings.length > 0 && (
-              <Box>
-                <Typography variant="h6" gutterBottom>Upcoming Meetings</Typography>
-                
-                {filteredMeetings.futureMeetings.map(meeting => (
-                  <Box key={meeting.id} sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0, mb: 1 }}>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{meeting.title}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {new Date(meeting.meetingDate).toLocaleDateString()} - {meeting.startTime}
-                    </Typography>
-                    <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-                      <Button 
-                        size="small" 
-                        startIcon={<EditIcon />}
-                        sx={{ color: '#1A2137' }}
-                      >
-                        Edit
-                      </Button>
-                  <Button
-                        size="small" 
-                        startIcon={<DescriptionIcon />}
-                        sx={{ color: '#1A2137' }}
-                      >
-                        Minutes
-                  </Button>
-                </Box>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </>
-              )}
-            </Paper>
+            ))
+          ) : (
+            <Typography variant="body2">No upcoming meetings scheduled</Typography>
+          )}
+        </Box>
+        
+        {/* Debug reload button */}
+        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<RefreshIcon />}
+            onClick={handleDebugReload}
+            sx={{ fontSize: '0.7rem' }}
+          >
+            Reload Meetings
+          </Button>
+        </Box>
+      </Paper>
     );
   };
 
-  // Render reports section
-  const renderReports = () => (
-    <Paper sx={{ p: 4, borderRadius: 0 }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Reports</Typography>
-      
-      <Grid container spacing={2}>
-        <Grid item xs={12}>
-          <Card sx={{ p: 2, borderRadius: 0 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Feedback Summary Report</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Download comprehensive feedback report for all meetings
-              </Typography>
-              <Button 
-                variant="contained" 
-                startIcon={<DownloadIcon />}
-                sx={{ 
-                  bgcolor: '#1A2137', 
-                  '&:hover': { bgcolor: '#2A3147' }
-                }}
-              >
-                Download Report
-              </Button>
-            </CardContent>
-          </Card>
-          </Grid>
-        
-        <Grid item xs={12}>
-          <Card sx={{ p: 2, borderRadius: 0 }}>
-              <CardContent>
-              <Typography variant="h6" gutterBottom>Meeting Minutes Report</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Access all meeting minutes in one document
-                </Typography>
-                <Button
-                  variant="contained"
-                  startIcon={<DownloadIcon />}
-                sx={{ 
-                  bgcolor: '#1A2137', 
-                  '&:hover': { bgcolor: '#2A3147' }
-                }}
-              >
-                Download Minutes
-                </Button>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-    </Paper>
-  );
+  // Update the tabs array
+  const tabs = [
+    { id: 0, label: "Profile", icon: <PersonIcon /> },
+    { id: 1, label: "View Meetings", icon: <EventIcon /> },
+    { id: 2, label: "View Questions", icon: <QuestionAnswerIcon /> }
+  ];
 
   // Render meeting timer section
   const renderMeetingTimer = () => {
@@ -636,16 +772,16 @@ const StaffDashboard = () => {
                 
                 console.log('Staff Dashboard: Created staff timer from generic data');
                 return;
-              } else {
-                console.log('Staff Dashboard: Invalid meeting date in generic data:', timerData.originalDate);
+              } else if (timerData.minutesLeft !== undefined && timerData.secondsLeft !== undefined) {
+                // Fallback to stored values if we can't recalculate
+                console.log('Staff Dashboard: No original date in generic data, using stored values');
+                setCountdown({
+                  minutes: timerData.minutesLeft,
+                  seconds: timerData.secondsLeft
+                });
               }
-            } else if (timerData.minutesLeft !== undefined && timerData.secondsLeft !== undefined) {
-              // Fallback to stored values if we can't recalculate
-              console.log('Staff Dashboard: No original date in generic data, using stored values');
-              setCountdown({
-                minutes: timerData.minutesLeft,
-                seconds: timerData.secondsLeft
-              });
+            } else {
+              console.log('Staff Dashboard: Generic timer is not for staff role:', timerData.role);
             }
           } else {
             console.log('Staff Dashboard: Generic timer is not for staff role:', timerData.role);
@@ -998,144 +1134,169 @@ const StaffDashboard = () => {
     );
   };
 
-  // Sidebar component to match the student dashboard
-  const Sidebar = () => (
-    <Box 
-      sx={{
-        width: 240,
-        bgcolor: '#1A2137', // Dark navy blue
-        color: 'white',
-        height: '100vh',
-        position: 'fixed',
-        left: 0,
-        top: 0,
-        zIndex: 1
-      }}
-    >
-      <Box sx={{ p: 3, pb: 2, bgcolor: '#2A3147' }}>
-        <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#FFFFFF' }}>
-          Staff Dashboard
-        </Typography>
-      </Box>
+  // Render reports section
+  const renderReports = () => (
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Reports</Typography>
       
-      <List sx={{ p: 0 }}>
-        <ListItem 
-          button 
-          onClick={() => dispatch(setActiveSection('profile'))}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'profile' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <PersonIcon />
-          </ListItemIcon>
-          <ListItemText primary="Profile" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
+      <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <Card sx={{ p: 2, borderRadius: 0 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>Feedback Summary Report</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Download comprehensive feedback report for all meetings
+              </Typography>
+              <Button 
+                variant="contained" 
+                startIcon={<DownloadIcon />}
+                sx={{ 
+                  bgcolor: '#1A2137', 
+                  '&:hover': { bgcolor: '#2A3147' }
+                }}
+              >
+                Download Report
+              </Button>
+            </CardContent>
+          </Card>
+          </Grid>
         
-        <ListItem 
-          button 
-          onClick={() => dispatch(setActiveSection('feedback'))}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'feedback' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <FeedbackIcon />
-          </ListItemIcon>
-          <ListItemText primary="Submit Feedback" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-        
-        <ListItem 
-          button 
-          onClick={() => dispatch(setActiveSection('meeting-schedule'))}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'meeting-schedule' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <CalendarTodayIcon />
-          </ListItemIcon>
-          <ListItemText primary="Meeting Schedule" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-        
-        <ListItem 
-          button 
-          onClick={() => dispatch(setActiveSection('reports'))}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'reports' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <AssessmentIcon />
-          </ListItemIcon>
-          <ListItemText primary="Reports" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-      </List>
-      
-      <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
-        <ListItem 
-          button 
-          onClick={handleLogout}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <LogoutIcon />
-          </ListItemIcon>
-          <ListItemText primary="Logout" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
-      </Box>
-    </Box>
+        <Grid item xs={12}>
+          <Card sx={{ p: 2, borderRadius: 0 }}>
+              <CardContent>
+              <Typography variant="h6" gutterBottom>Meeting Minutes Report</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Access all meeting minutes in one document
+                </Typography>
+                <Button
+                  variant="contained"
+                  startIcon={<DownloadIcon />}
+                sx={{ 
+                  bgcolor: '#1A2137', 
+                  '&:hover': { bgcolor: '#2A3147' }
+                }}
+              >
+                Download Minutes
+                </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+    </Paper>
   );
 
   return (
     <Box sx={{ display: 'flex' }}>
-      {/* Custom sidebar that matches the student dashboard */}
-      <Sidebar />
-      
+      {/* Sidebar */}
+      <Box 
+        sx={{
+          width: 240,
+          bgcolor: '#1A2137',
+          color: 'white',
+          height: '100vh',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          zIndex: 1
+        }}
+      >
+        <Box sx={{ p: 3, pb: 2, bgcolor: '#2A3147' }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#FFFFFF' }}>
+            Staff Dashboard
+          </Typography>
+        </Box>
+        
+        <List sx={{ p: 0 }}>
+          {tabs.map((tab) => (
+            <ListItem 
+              key={tab.id}
+              button 
+              onClick={() => dispatch(setActiveSection(tab.label.toLowerCase().replace(' ', '-')))}
+              sx={{ 
+                py: 2, 
+                pl: 3,
+                bgcolor: activeSection === tab.label.toLowerCase().replace(' ', '-') ? '#2A3147' : 'transparent',
+                '&:hover': { bgcolor: '#2A3147' }
+              }}
+            >
+              <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+                {tab.icon}
+              </ListItemIcon>
+              <ListItemText primary={tab.label} sx={{ color: '#FFFFFF' }} />
+            </ListItem>
+          ))}
+        </List>
+        
+        <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
+          <ListItem 
+            button 
+            onClick={handleLogout}
+            sx={{ 
+              py: 2, 
+              pl: 3,
+              '&:hover': { bgcolor: '#2A3147' }
+            }}
+          >
+            <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
+              <LogoutIcon />
+            </ListItemIcon>
+            <ListItemText primary="Logout" sx={{ color: '#FFFFFF' }} />
+          </ListItem>
+        </Box>
+      </Box>
+
       {/* Main content */}
       <Box 
         component="main" 
         sx={{ 
           flexGrow: 1, 
-          p: 0, 
+          p: 3,
           bgcolor: '#f5f5f7',
           ml: '240px',
-          minHeight: '100vh',
-          display: 'flex',
-          justifyContent: 'center'
+          minHeight: '100vh'
         }}
       >
-        <Box sx={{ width: '1010px', mt: 2, mb: 2 }}>
-          {activeSection === 'profile' && renderProfile()}
-          {activeSection === 'feedback' && renderFeedback()}
-          {activeSection === 'meeting-schedule' && renderMeetingSchedule()}
-          {activeSection === 'reports' && renderReports()}
-          
-          {/* Meeting Timer shown whenever not in reports view */}
-          {activeSection !== 'reports' && (
-            <Box sx={{ mt: 3 }}>
-              {renderMeetingTimer()}
+        <Container maxWidth="lg">
+          {/* Profile Section */}
+          {activeSection === 'profile' && (
+            <Box>
+              {renderProfile()}
+              <Box sx={{ mt: 3 }}>
+                {renderMeetingTimer()}
+              </Box>
             </Box>
           )}
-        </Box>
+
+          {/* View Meetings Section */}
+          {activeSection === 'view-meetings' && (
+            <Box>
+              {renderMeetingSchedule()}
+              <Box sx={{ mt: 3 }}>
+                {renderMeetingTimer()}
+              </Box>
+            </Box>
+          )}
+
+          {/* View Questions Section */}
+          {activeSection === 'view-questions' && (
+            <Box>
+              {renderFeedback()}
+              <Box sx={{ mt: 3 }}>
+                {renderMeetingTimer()}
+              </Box>
+            </Box>
+          )}
+
+          {/* Analytics Section */}
+          {activeSection === 'analytics' && (
+            <Box>
+              {renderReports()}
+            </Box>
+          )}
+        </Container>
       </Box>
-      
+
+      {/* Snackbar for notifications */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}

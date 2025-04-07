@@ -39,8 +39,24 @@ export const login = createAsyncThunk(
       // Get the first role
       const userRole = roles[0];
       
-      // Normalize the role (remove ROLE_ prefix if present and convert to uppercase)
-      const normalizedRole = userRole.replace('ROLE_', '').toUpperCase();
+      // Normalize role for consistent dashboard routing
+      let normalizedRole = '';
+      
+      // Convert to lowercase first
+      const roleLower = userRole.toLowerCase();
+      
+      if (roleLower.includes('student')) {
+        normalizedRole = 'student';
+      } else if (roleLower.includes('staff')) {
+        normalizedRole = 'staff';
+      } else if (roleLower.includes('academic')) {
+        normalizedRole = 'academic-director';
+      } else if (roleLower.includes('executive')) {
+        normalizedRole = 'executive-director';
+      } else {
+        // Default - use lowercase version
+        normalizedRole = roleLower;
+      }
       
       // Log role information for debugging
       console.log('Login successful. Role info:', { 

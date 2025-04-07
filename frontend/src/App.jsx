@@ -33,22 +33,83 @@ const App = () => {
   // Modified ProtectedRoute to handle case sensitivity in role comparison
   // and use both Redux and local state
   const ProtectedRoute = ({ element, allowedRole }) => {
-    // Normalize user role (remove ROLE_ prefix if present)
-    const normalizedUserRole = (userRole || reduxUserRole || '').replace('ROLE_', '').toUpperCase();
-    const normalizedAllowedRole = allowedRole?.toUpperCase();
+    // Normalize user role and handle multiple formats
+    const normalizedUserRole = userRole ? userRole.toLowerCase() : '';
+    const reduxNormalizedRole = reduxUserRole ? reduxUserRole.toLowerCase() : '';
+    
+    // Check for each role with multiple formats
+    const isAcademicDirector = (
+      normalizedUserRole === 'academic_director' ||
+      normalizedUserRole === 'academic-director' ||
+      normalizedUserRole === 'academicdirector' ||
+      reduxNormalizedRole === 'academic_director' ||
+      reduxNormalizedRole === 'academic-director' ||
+      reduxNormalizedRole === 'academicdirector'
+    );
+    
+    const isStaff = (
+      normalizedUserRole === 'staff' ||
+      normalizedUserRole === 'faculty' ||
+      normalizedUserRole === 'teacher' ||
+      reduxNormalizedRole === 'staff' ||
+      reduxNormalizedRole === 'faculty' ||
+      reduxNormalizedRole === 'teacher'
+    );
+    
+    const isExecutiveDirector = (
+      normalizedUserRole === 'executive_director' ||
+      normalizedUserRole === 'executive-director' ||
+      normalizedUserRole === 'executivedirector' ||
+      reduxNormalizedRole === 'executive_director' ||
+      reduxNormalizedRole === 'executive-director' ||
+      reduxNormalizedRole === 'executivedirector'
+    );
+    
+    const isStudent = (
+      normalizedUserRole === 'student' ||
+      reduxNormalizedRole === 'student'
+    );
+    
+    // Check if route is for specific role
+    const allowedRoleLower = allowedRole.toLowerCase();
+    if (allowedRoleLower === 'academic_director' && isAcademicDirector) {
+      return element;
+    }
+    
+    if (allowedRoleLower === 'staff' && isStaff) {
+      return element;
+    }
+    
+    if (allowedRoleLower === 'executive_director' && isExecutiveDirector) {
+      return element;
+    }
+    
+    if (allowedRoleLower === 'student' && isStudent) {
+      return element;
+    }
+    
+    // For backward compatibility - handle other roles with simple equality check
+    const hasAccess = normalizedUserRole === allowedRoleLower || 
+                      reduxNormalizedRole === allowedRoleLower;
     
     // Add debugging logs
     console.log('ProtectedRoute check:', {
       userRole,
       reduxUserRole,
       normalizedUserRole,
+      reduxNormalizedRole,
       allowedRole,
-      normalizedAllowedRole,
+      allowedRoleLower,
       isAuthenticated: isAuthenticated || reduxIsAuthenticated,
-      hasAccess: normalizedUserRole === normalizedAllowedRole
+      isAcademicDirector,
+      isStaff,
+      isExecutiveDirector,
+      isStudent,
+      hasAccess
     });
     
-    return (isAuthenticated || reduxIsAuthenticated) && normalizedUserRole === normalizedAllowedRole ? 
+    return (isAuthenticated || reduxIsAuthenticated) && 
+      (hasAccess || isAcademicDirector || isStaff || isExecutiveDirector || isStudent) ? 
       element : 
       <Navigate to="/login" />;
   };

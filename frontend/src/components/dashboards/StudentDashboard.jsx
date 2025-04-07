@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import API from '../../api/axiosConfig'; // Import the global API instance
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -26,6 +27,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import LogoutIcon from '@mui/icons-material/Logout';
 import StarIcon from '@mui/icons-material/Star';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -96,7 +98,8 @@ const StudentDashboard = () => {
     
     setLoading(true); // Set loading state while data is being fetched
     fetchUserProfile();
-    fetchMeetings(); // Fetch meetings data after authorization is confirmed
+    loadMeetingsFromStorage(); // First try to load from localStorage
+    fetchMeetings(); // Then try to fetch from API as backup
   }, [navigate]);
 
   // Fetch user profile
@@ -132,12 +135,8 @@ const StudentDashboard = () => {
       // Still try the API call to ensure data is fresh
       console.log('Making API request to users/profile endpoint');
       
-      // Use the correct endpoint from the API documentation
-      const response = await axios.get('http://localhost:8080/api/users/profile', {
-        headers: {
-          'x-access-token': token
-        }
-      });
+      // Use the global API instance with interceptors
+      const response = await API.get('/users/profile');
       
       console.log('Profile API response received:', response.data);
       
@@ -173,60 +172,89 @@ const StudentDashboard = () => {
 
   // Fetch meetings - defined outside useEffect to avoid recreating it on each render
   const fetchMeetings = async () => {
-    setLoading(true);
     try {
-      // First try fetching from API
       const token = localStorage.getItem('token');
       if (!token) {
-        throw new Error('No authentication token found');
+        console.error('No token found');
+        return;
       }
-      
-      const response = await axios.get('http://localhost:8080/api/meetings', {
-        headers: {
-          'x-access-token': token
+
+      // Get student's department and year from profile
+      const userProfile = JSON.parse(localStorage.getItem('userData'));
+      const studentDepartment = userProfile?.department;
+      const studentYear = userProfile?.year;
+
+      // First try to load from localStorage
+      const storedMeetings = localStorage.getItem('meetings');
+      if (storedMeetings) {
+        try {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+            // Filter meetings based on student's department and year
+            const filteredMeetings = parsedMeetings.filter(meeting => 
+              meeting.role === 'student' &&
+              meeting.department === studentDepartment &&
+              meeting.year === studentYear
+            );
+            sortAndSetMeetings(filteredMeetings);
+            return;
+          }
+        } catch (error) {
+          console.error('Error parsing stored meetings:', error);
         }
-      });
-      
-      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-        // Sort meetings by date
-        const sortedMeetings = response.data.sort((a, b) => {
-          const dateA = new Date(a.date || a.meetingDate || '');
-          const dateB = new Date(b.date || b.meetingDate || '');
-          return dateA - dateB;
-        });
-        
-        console.log('API returned meeting data:', sortedMeetings);
-        setMeetings(sortedMeetings);
-        
-        // Find next upcoming meeting for timer
-        const now = new Date();
-        const upcomingMeeting = sortedMeetings.find(m => {
-          const meetingDate = new Date(m.date || m.meetingDate || '');
-          return !isNaN(meetingDate.getTime()) && meetingDate > now;
-        });
-        
-        if (upcomingMeeting) {
-          setTimerFromMeeting(upcomingMeeting);
-        }
+      }
+
+      // If no valid meetings in localStorage, fetch from API
+      const response = await API.get('/meetings');
+      if (response.data && Array.isArray(response.data)) {
+        // Filter meetings based on student's department and year
+        const filteredMeetings = response.data.filter(meeting => 
+          meeting.role === 'student' &&
+          meeting.department === studentDepartment &&
+          meeting.year === studentYear
+        );
+        sortAndSetMeetings(filteredMeetings);
       } else {
-        console.log('API returned no meetings or invalid data, trying localStorage');
-        // API returned no meetings, try localStorage
-        if (!checkLocalStorageForMeetings()) {
-          console.log('No valid meetings in localStorage either, using hardcoded data');
-          useHardcodedMeetings();
-        }
+        console.error('Invalid response format from API:', response.data);
+        // Create sample meetings as fallback
+        const sampleMeetings = [
+          {
+            id: '1',
+            title: 'Sample Student Meeting',
+            date: new Date().toISOString().split('T')[0],
+            startTime: '09:00',
+            endTime: '10:00',
+            role: 'student',
+            department: studentDepartment,
+            year: studentYear
+          }
+        ];
+        sortAndSetMeetings(sampleMeetings);
       }
     } catch (error) {
-      console.error('Error in fetchMeetings:', error);
-      console.log('API request failed, trying localStorage');
-      
-      // Try localStorage
-      if (!checkLocalStorageForMeetings()) {
-        console.log('No valid meetings in localStorage either, using hardcoded data');
-        useHardcodedMeetings();
+      console.error('Error fetching meetings from API:', error);
+      // Try to load from localStorage as fallback
+      const storedMeetings = localStorage.getItem('meetings');
+      if (storedMeetings) {
+        try {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+            // Filter meetings based on student's department and year
+            const userProfile = JSON.parse(localStorage.getItem('userData'));
+            const studentDepartment = userProfile?.department;
+            const studentYear = userProfile?.year;
+            
+            const filteredMeetings = parsedMeetings.filter(meeting => 
+              meeting.role === 'student' &&
+              meeting.department === studentDepartment &&
+              meeting.year === studentYear
+            );
+            sortAndSetMeetings(filteredMeetings);
+          }
+        } catch (error) {
+          console.error('Error parsing stored meetings:', error);
+        }
       }
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -254,30 +282,108 @@ const StudentDashboard = () => {
   // Fetch questions for feedback
   const fetchQuestions = async (meetingId) => {
     try {
-      const response = await axios.get(`http://localhost:8080/api/questions/meeting/${meetingId}`, {
-        headers: {
-          'x-access-token': localStorage.getItem('token')
+      setLoading(true);
+      
+      // First try to fetch from API
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
+      console.log(`Fetching questions for meeting ID: ${meetingId}`);
+      
+      // Use the global API instance with interceptors
+      const response = await API.get(`/questions/meeting/${meetingId}`);
+      
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        console.log('API returned questions:', response.data);
+        setQuestions(response.data);
+        
+        // Reset the ratings since we have new questions
+        setRatings({});
+        
+        // Show the feedback section
+        setActiveSection('feedback');
+        
+        return;
+      }
+      
+      console.log('API returned no questions or invalid data. Trying localStorage...');
+      
+      // API failed, try to load from localStorage
+      const storedQuestions = localStorage.getItem('submittedQuestions') || localStorage.getItem('questions');
+      
+      if (storedQuestions) {
+        try {
+          const parsedQuestions = JSON.parse(storedQuestions);
+          
+          if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0) {
+            console.log('Found questions in localStorage:', parsedQuestions);
+            
+            // Use a standard set of questions for the demo
+            const standardQuestions = [
+              { id: 1, text: 'How would you rate the course content?' },
+              { id: 2, text: 'How would you rate the instructor\'s teaching?' },
+              { id: 3, text: 'How would you rate the learning environment?' },
+              { id: 4, text: 'How would you rate the overall experience?' }
+            ];
+            
+            setQuestions(parsedQuestions.length > 0 ? parsedQuestions : standardQuestions);
+            
+            // Reset the ratings since we have new questions
+            setRatings({});
+            
+            // Show the feedback section
+            setActiveSection('feedback');
+            
+            setSnackbar({
+              open: true,
+              message: 'Loaded questions from local storage',
+              severity: 'info'
+            });
+            
+            return;
+          }
+        } catch (parseError) {
+          console.error('Error parsing questions from localStorage:', parseError);
         }
-      });
+      }
       
-      setQuestions(response.data);
+      // If we get here, we couldn't load from API or localStorage, use default questions
+      console.log('Using default questions');
       
-      // Initialize ratings for each question
-      const initialRatings = {};
-      response.data.forEach(question => {
-        initialRatings[question.id] = 0;
-      });
-      setRatings(initialRatings);
+      // Use a standard set of questions for the demo
+      setQuestions([
+        { id: 1, text: 'How would you rate the course content?' },
+        { id: 2, text: 'How would you rate the instructor\'s teaching?' },
+        { id: 3, text: 'How would you rate the learning environment?' },
+        { id: 4, text: 'How would you rate the overall experience?' }
+      ]);
       
-      // Switch to feedback section
+      // Reset the ratings
+      setRatings({});
+      
+      // Show the feedback section
       setActiveSection('feedback');
     } catch (error) {
       console.error('Error fetching questions:', error);
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Failed to load questions',
-        severity: 'error'
-      });
+      setError('Failed to load questions. Please try again.');
+      
+      // Use default questions as fallback
+      setQuestions([
+        { id: 1, text: 'How would you rate the course content?' },
+        { id: 2, text: 'How would you rate the instructor\'s teaching?' },
+        { id: 3, text: 'How would you rate the learning environment?' },
+        { id: 4, text: 'How would you rate the overall experience?' }
+      ]);
+      
+      // Reset the ratings
+      setRatings({});
+      
+      // Still show the feedback section despite the error
+      setActiveSection('feedback');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -309,19 +415,12 @@ const StudentDashboard = () => {
         }))
       };
 
-      await axios.post('http://localhost:8080/api/feedback', feedbackData, {
-        headers: {
-          'x-access-token': localStorage.getItem('token')
-        }
-      });
+      // Use the global API instance with interceptors
+      await API.post('/feedback', feedbackData);
 
       // Mark feedback as submitted
-      await axios.post('http://localhost:8080/api/feedback/mark-submitted', {
+      await API.post('/feedback/mark-submitted', {
         meetingId: meetings[0].id  // Assuming we're submitting for the first meeting
-      }, {
-        headers: {
-          'x-access-token': localStorage.getItem('token')
-        }
       });
 
       setSnackbar({
@@ -353,6 +452,110 @@ const StudentDashboard = () => {
 
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
+  };
+
+  // Add a dedicated function to load meetings from localStorage
+  const loadMeetingsFromStorage = () => {
+    try {
+      // Try both possible localStorage keys for meetings
+      const storedMeetings = localStorage.getItem('submittedMeetings') || localStorage.getItem('meetings');
+      
+      if (!storedMeetings) {
+        console.log('No meetings found in localStorage');
+        return false;
+      }
+      
+      const parsedMeetings = JSON.parse(storedMeetings);
+      
+      if (!Array.isArray(parsedMeetings) || parsedMeetings.length === 0) {
+        console.log('No valid meetings found in localStorage');
+        return false;
+      }
+      
+      console.log('Found', parsedMeetings.length, 'meetings in localStorage');
+      
+      // Filter student meetings
+      const studentMeetings = parsedMeetings.filter(meeting => {
+        // Check if role exists and is 'student' (case-insensitive)
+        const role = (meeting.role || '').toLowerCase();
+        return role === 'student' || role.includes('student');
+      });
+      
+      console.log('Filtered', studentMeetings.length, 'student meetings from', parsedMeetings.length, 'total meetings');
+      
+      if (studentMeetings.length > 0) {
+        setMeetings(studentMeetings);
+        
+        // Find next upcoming meeting for timer
+        const now = new Date();
+        const upcomingMeeting = studentMeetings
+          .filter(m => {
+            const meetingDate = new Date(m.date || m.meetingDate || '');
+            return !isNaN(meetingDate.getTime()) && meetingDate > now;
+          })
+          .sort((a, b) => {
+            const dateA = new Date(a.date || a.meetingDate || '');
+            const dateB = new Date(b.date || b.meetingDate || '');
+            return dateA - dateB;
+          })[0];
+        
+        if (upcomingMeeting) {
+          setTimerFromMeeting(upcomingMeeting);
+        }
+        
+        setSnackbar({
+          open: true,
+          message: `Loaded ${studentMeetings.length} student meetings`,
+          severity: 'success'
+        });
+        
+        return true;
+      }
+      
+      console.log('No student meetings found in localStorage');
+      return false;
+    } catch (error) {
+      console.error('Error loading meetings from localStorage:', error);
+      return false;
+    }
+  };
+
+  // Helper function to set timer from meeting
+  const setTimerFromMeeting = (meeting) => {
+    try {
+      const now = new Date();
+      const meetingDate = new Date(`${meeting.date || meeting.meetingDate}T${meeting.startTime || '00:00'}`);
+      
+      if (!isNaN(meetingDate.getTime())) {
+        const diffMs = Math.max(0, meetingDate - now);
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffSecs = Math.floor((diffMs % 60000) / 1000);
+        
+        const timerData = {
+          id: meeting.id,
+          title: meeting.title,
+          date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+          time: meeting.startTime,
+          minutesLeft: diffMins,
+          secondsLeft: diffSecs,
+          originalDate: meeting.date || meeting.meetingDate,
+          role: 'student',
+          year: meeting.year
+        };
+        
+        setNextMeeting(timerData);
+        
+        // Save to localStorage for timer persistence
+        localStorage.setItem('studentNextMeetingData', JSON.stringify(timerData));
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error setting timer from meeting:', error);
+      return false;
+    }
   };
 
   // Render student profile section
@@ -635,18 +838,16 @@ const StudentDashboard = () => {
     };
     
     return (
-      <Paper sx={{ p: 4, borderRadius: 0 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Meeting Schedule</Typography>
-        
-        {/* Debug button */}
-        <Box sx={{ mb: 2 }}>
+      <Paper sx={{ p: 4, borderRadius: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h5" gutterBottom sx={{ mb: 0 }}>Meeting Schedule</Typography>
           <Button 
             variant="outlined" 
             size="small"
-            onClick={checkLocalStorage}
-            sx={{ mb: 2, fontSize: '0.7rem' }}
+            onClick={loadMeetingsFromStorage}
+            startIcon={<RefreshIcon />}
           >
-            Debug: Reload from localStorage
+            Refresh Meetings
           </Button>
         </Box>
         
@@ -685,17 +886,6 @@ const StudentDashboard = () => {
       </Paper>
     );
   };
-
-  // Render meeting minutes section
-  const renderMeetingMinutes = () => (
-    <Paper sx={{ p: 4, borderRadius: 2 }}>
-      <Typography variant="h5" gutterBottom>Meeting Minutes</Typography>
-      {/* Content for meeting minutes would go here */}
-      <Typography variant="body1" sx={{ mt: 2 }}>
-        No meeting minutes available.
-                      </Typography>
-          </Paper>
-  );
 
   // Render meeting timer section
   const renderMeetingTimer = () => {
@@ -1077,9 +1267,9 @@ const StudentDashboard = () => {
       <Box sx={{ p: 3, pb: 2, bgcolor: '#2A3147' }}>
         <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#FFFFFF' }}>
           Student Dashboard
-                      </Typography>
-        </Box>
-        
+        </Typography>
+      </Box>
+      
       <List sx={{ p: 0 }}>
         <ListItem 
           button 
@@ -1128,22 +1318,6 @@ const StudentDashboard = () => {
           </ListItemIcon>
           <ListItemText primary="View Meeting Schedule" sx={{ color: '#FFFFFF' }} />
         </ListItem>
-        
-        <ListItem 
-          button 
-          onClick={() => setActiveSection('meeting-minutes')}
-          sx={{ 
-            py: 2, 
-            pl: 3,
-            bgcolor: activeSection === 'meeting-minutes' ? '#2A3147' : 'transparent',
-            '&:hover': { bgcolor: '#2A3147' }
-          }}
-        >
-          <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
-            <DescriptionIcon />
-          </ListItemIcon>
-          <ListItemText primary="View Meeting Minutes" sx={{ color: '#FFFFFF' }} />
-        </ListItem>
       </List>
       
       <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
@@ -1161,11 +1335,11 @@ const StudentDashboard = () => {
           </ListItemIcon>
           <ListItemText primary="Logout" sx={{ color: '#FFFFFF' }} />
         </ListItem>
-        </Box>
       </Box>
-    );
+    </Box>
+  );
 
-    return (
+  return (
     <Box sx={{ display: 'flex' }}>
       {/* Custom sidebar that matches the screenshot */}
       <Sidebar />
@@ -1187,16 +1361,13 @@ const StudentDashboard = () => {
           {activeSection === 'profile' && renderProfile()}
           {activeSection === 'feedback' && renderFeedback()}
           {activeSection === 'meeting-schedule' && renderMeetingSchedule()}
-          {activeSection === 'meeting-minutes' && renderMeetingMinutes()}
           
-          {/* Meeting Timer shown whenever not in meeting minutes view */}
-          {activeSection !== 'meeting-minutes' && (
-            <Box sx={{ mt: 3 }}>
-              {renderMeetingTimer()}
-              </Box>
-            )}
+          {/* Meeting Timer shown on all views now */}
+          <Box sx={{ mt: 3 }}>
+            {renderMeetingTimer()}
+          </Box>
         </Box>
-        </Box>
+      </Box>
 
       <Snackbar
         open={snackbar.open}
@@ -1208,8 +1379,8 @@ const StudentDashboard = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
-      </Box>
-    );
-  };
+    </Box>
+  );
+};
 
 export default StudentDashboard;

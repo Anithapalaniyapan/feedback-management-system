@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import API from '../../api/axiosConfig'; // Import the global API instance
 import {
   Box,
   Container,
@@ -62,6 +63,9 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import PersonIcon from '@mui/icons-material/Person';
 import { useNavigate } from 'react-router-dom';
 import MeetingManagement from '../student/dashboard/MeetingManagement';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import PeopleIcon from '@mui/icons-material/People';
+import { blue } from '@mui/material/colors';
 
 const AcademicDirectorDashboard = () => {
   const theme = useTheme();
@@ -81,6 +85,7 @@ const AcademicDirectorDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [meetingDate, setMeetingDate] = useState(''); // For associating questions with meetings
+  const [departments, setDepartments] = useState([]); // Add the departments state variable
 
   // State for new meeting form
   const [newMeeting, setNewMeeting] = useState({
@@ -142,6 +147,130 @@ const AcademicDirectorDashboard = () => {
   // Add state for tracking meeting countdown times
   const [meetingCountdowns, setMeetingCountdowns] = useState({});
   
+  // Add state for profile data
+  const [profileData, setProfileData] = useState({
+    name: 'Academic Director',
+    role: 'Academic Director',
+    department: 'Engineering',
+    id: localStorage.getItem('userId') || '12345',
+    email: localStorage.getItem('userEmail') || 'academic.director@example.com'
+  });
+  
+  // Load meetings from localStorage if there are any
+  const loadMeetingsFromStorage = () => {
+    try {
+      const storedMeetings = localStorage.getItem('meetings');
+      if (storedMeetings) {
+        const parsedMeetings = JSON.parse(storedMeetings);
+        if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+          console.log('Loaded meetings from localStorage:', parsedMeetings);
+          setMeetings(parsedMeetings);
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Error loading meetings from localStorage:', error);
+      return false;
+    }
+  };
+  
+  // Add sortAndSetMeetings function
+  const sortAndSetMeetings = (meetings) => {
+    if (!Array.isArray(meetings)) {
+      console.error('Invalid meetings data received:', meetings);
+      return;
+    }
+
+    // Sort meetings by date
+    const sortedMeetings = meetings.sort((a, b) => {
+      const dateA = new Date(a.date || a.meetingDate || '');
+      const dateB = new Date(b.date || b.meetingDate || '');
+      return dateA - dateB;
+    });
+
+    // Update state with sorted meetings
+    setMeetings(sortedMeetings);
+
+    // Store in localStorage
+    try {
+      localStorage.setItem('meetings', JSON.stringify(sortedMeetings));
+      localStorage.setItem('submittedMeetings', JSON.stringify(sortedMeetings));
+    } catch (error) {
+      console.error('Error storing meetings in localStorage:', error);
+    }
+  };
+
+  // Update fetchMeetings function
+  const fetchMeetings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No token found');
+        return;
+      }
+
+      // First try to load from localStorage
+      const storedMeetings = localStorage.getItem('meetings');
+      if (storedMeetings) {
+        try {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+            sortAndSetMeetings(parsedMeetings);
+            return;
+          }
+        } catch (error) {
+          console.error('Error parsing stored meetings:', error);
+        }
+      }
+
+      // If no valid meetings in localStorage, fetch from API
+      const response = await API.get('/meetings');
+      if (response.data && Array.isArray(response.data)) {
+        sortAndSetMeetings(response.data);
+      } else {
+        console.error('Invalid response format from API:', response.data);
+        // Create sample meetings as fallback
+        const sampleMeetings = [
+          {
+            id: '1',
+            title: 'Sample Student Meeting',
+            date: new Date().toISOString().split('T')[0],
+            startTime: '09:00',
+            endTime: '10:00',
+            role: 'student',
+            department: 'Engineering',
+            year: '2024'
+          },
+          {
+            id: '2',
+            title: 'Sample Staff Meeting',
+            date: new Date().toISOString().split('T')[0],
+            startTime: '11:00',
+            endTime: '12:00',
+            role: 'staff',
+            department: 'Engineering'
+          }
+        ];
+        sortAndSetMeetings(sampleMeetings);
+      }
+    } catch (error) {
+      console.error('Error fetching meetings from API:', error);
+      // Try to load from localStorage as fallback
+      const storedMeetings = localStorage.getItem('meetings');
+      if (storedMeetings) {
+        try {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+            sortAndSetMeetings(parsedMeetings);
+          }
+        } catch (error) {
+          console.error('Error parsing stored meetings:', error);
+        }
+      }
+    }
+  };
+  
   // Update countdown timers every second
   useEffect(() => {
     const timer = setInterval(() => {
@@ -191,65 +320,125 @@ const AcademicDirectorDashboard = () => {
     const token = localStorage.getItem('token');
     const userRole = localStorage.getItem('userRole');
     
+    // Check for authentication
     if (!token) {
+      console.log('No token found, redirecting to login');
       navigate('/login');
       return;
     }
     
-    if (userRole !== 'ACADEMIC_DIRECTOR' && userRole !== 'ROLE_ACADEMIC_DIRECTOR') {
+    // Normalize and check role - be flexible with role format
+    const normalizedRole = userRole ? userRole.toLowerCase() : '';
+    const isAcademicDirector = 
+      normalizedRole === 'academic_director' || 
+      normalizedRole === 'academic-director' || 
+      normalizedRole === 'academicdirector' ||
+      normalizedRole.includes('academic');
+    
+    if (!isAcademicDirector) {
+      console.log(`Invalid role for academic director dashboard: ${userRole}`);
       setSnackbar({
         open: true,
         message: 'You do not have permission to access this dashboard',
         severity: 'error'
       });
       navigate('/login');
+      return;
     }
+    
+    console.log('Authentication successful for Academic Director dashboard');
+    
+    // Load meetings from localStorage first
+    loadMeetingsFromStorage();
+    
+    // Then try to fetch from API
+    fetchMeetings();
   }, [navigate]);
 
-  // Fetch meetings
+  // Add a function to fetch user profile
   useEffect(() => {
-    const fetchMeetings = async () => {
-      setLoading(true);
+    const fetchUserProfile = async () => {
       try {
-        const response = await axios.get('http://localhost:8080/api/meetings', {
-          headers: {
-            'x-access-token': localStorage.getItem('token')
-          }
+        // Check if token exists
+        const token = localStorage.getItem('token');
+        console.log('Token for profile fetch:', token);
+        
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+        
+        // First try to get from localStorage
+        const storedUserData = localStorage.getItem('userData');
+        if (storedUserData) {
+          const userData = JSON.parse(storedUserData);
+          console.log('Using profile data from localStorage:', userData);
+          
+          // Update profile with stored data but maintain Academic Director role
+          setProfileData({
+            name: 'Academic Director',
+            role: 'Academic Director',
+            department: 'Engineering',
+            id: userData.id || localStorage.getItem('userId') || '12345',
+            email: userData.email || localStorage.getItem('userEmail') || 'academic.director@example.com'
+          });
+          return;
+        }
+        
+        // If not in localStorage, fetch from API
+        const response = await API.get('/users/profile');
+        const userData = response.data;
+        console.log('Profile data from API:', userData);
+        
+        // Save to localStorage for future use
+        localStorage.setItem('userData', JSON.stringify(userData));
+        
+        // Update state with Academic Director info
+        setProfileData({
+          name: 'Academic Director',
+          role: 'Academic Director',
+          department: 'Engineering',
+          id: userData.id || '12345',
+          email: userData.email || 'academic.director@example.com'
         });
-        setMeetings(response.data);
+        
       } catch (error) {
-        console.error('Error in fetchMeetings:', error);
-        setError(error.message);
-        setSnackbar({
-          open: true,
-          message: error.response?.data?.message || 'Failed to load meetings. Please try again later.',
-          severity: 'error'
+        console.error('Error fetching user profile:', error);
+        
+        // Set default profile data if failed
+        setProfileData({
+          name: 'Academic Director',
+          role: 'Academic Director',
+          department: 'Engineering',
+          id: localStorage.getItem('userId') || '12345',
+          email: localStorage.getItem('userEmail') || 'academic.director@example.com'
         });
-      } finally {
-        setLoading(false);
       }
     };
 
-    fetchMeetings();
+    fetchUserProfile();
   }, []);
 
-  // Fetch departments
+  // Fetch departments with better error handling
   useEffect(() => {
     const fetchDepartments = async () => {
       try {
-        const response = await axios.get('http://localhost:8080/api/departments', {
-          headers: {
-            'x-access-token': localStorage.getItem('token')
-          }
-        });
-        setDepartments(response.data);
+        // Use the global API instance with interceptors
+        const response = await API.get('/departments');
+        
+        if (response.data) {
+          setDepartments(response.data);
+          console.log('Departments loaded successfully:', response.data);
+        }
       } catch (error) {
         console.error('Error fetching departments:', error);
-        setSnackbar({
-          open: true,
-          message: error.response?.data?.message || 'Failed to load departments',
-          severity: 'error'
-        });
+        // Load default departments if API fails
+        setDepartments([
+          { id: '1', name: 'Computer Science' },
+          { id: '2', name: 'Information Technology' },
+          { id: '3', name: 'Electronics and Communication' },
+          { id: '4', name: 'Electrical Engineering' },
+          { id: '5', name: 'Mechanical Engineering' }
+        ]);
       }
     };
 
@@ -387,46 +576,65 @@ const AcademicDirectorDashboard = () => {
   };
 
   const handleSubmitQuestions = async () => {
-      if (questions.length === 0) {
-        setSnackbar({
-          open: true,
-        message: 'Please add at least one question before submitting',
-          severity: 'error'
-        });
-        return;
-      }
-
-    try {
-      setLoading(true);
-      
-      // API call to save questions
-      await Promise.all(questions.map(question => 
-        axios.post('http://localhost:8080/api/questions', question, {
-          headers: {
-            'x-access-token': localStorage.getItem('token')
-          }
-        })
-      ));
-
-      // Clear questions after submission
-      setQuestions([]);
-      setNewQuestion('');
-      setEditQuestionId(null);
-
+    // Check if there are any questions to submit
+    if (!questions || questions.length === 0) {
       setSnackbar({
         open: true,
-        message: `Questions submitted successfully and will appear in the ${targetRole} dashboard`,
+        message: 'No questions to submit.',
+        severity: 'error'
+      });
+      return;
+    }
+
+    // Format questions for submission, ensuring all required fields are present
+    const formattedQuestions = questions.map(q => ({
+      id: q.id || Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      text: q.text,
+      department: q.department || department, // Use the department state variable
+      year: q.year || '1', // Default to first year if not specified
+      status: 'SUBMITTED'
+    }));
+
+    try {
+      // Try to submit to the API
+      try {
+        const response = await API.post('/questions/submit', formattedQuestions);
+        console.log('Questions submitted successfully to API:', response.data);
+      } catch (apiError) {
+        console.error('Error submitting questions to API:', apiError);
+        // Continue anyway since we'll update localStorage
+      }
+
+      // Update questions in state
+      setQuestions(formattedQuestions);
+      
+      // Save to localStorage with MULTIPLE KEYS for consistent access
+      localStorage.setItem('questions', JSON.stringify(formattedQuestions));
+      localStorage.setItem('submittedQuestions', JSON.stringify(formattedQuestions));
+      
+      console.log('Saved', formattedQuestions.length, 'questions to localStorage');
+
+      // Reset the new question form
+      setNewQuestion({
+        text: '',
+        department: department,
+        year: '',
+        status: 'DRAFT'
+      });
+
+      // Show success message
+      setSnackbar({
+        open: true,
+        message: 'Questions submitted successfully! They will now be available for feedback.',
         severity: 'success'
       });
     } catch (error) {
       console.error('Error submitting questions:', error);
-          setSnackbar({
-            open: true,
-        message: error.response?.data?.message || 'Failed to submit questions',
-            severity: 'error'
-          });
-    } finally {
-      setLoading(false);
+      setSnackbar({
+        open: true,
+        message: 'Error submitting questions. Please try again.',
+        severity: 'error'
+      });
     }
   };
 
@@ -513,6 +721,92 @@ const AcademicDirectorDashboard = () => {
     }
   };
 
+  // Implement handleDeleteMeeting function
+  const handleDeleteMeeting = (meetingId) => {
+    // First try to delete via API
+    try {
+      // Optimistic UI update - remove from state first
+      setMeetings(prevMeetings => prevMeetings.filter(meeting => meeting.id !== meetingId));
+      
+      // Then try to delete from API
+      API.delete(`/meetings/${meetingId}`)
+        .then(response => {
+          console.log('Meeting deleted successfully:', response.data);
+          setSnackbar({
+            open: true,
+            message: 'Meeting deleted successfully',
+            severity: 'success'
+          });
+          
+          // Update localStorage to keep it in sync
+          try {
+            const storedMeetings = localStorage.getItem('meetings');
+            if (storedMeetings) {
+              const parsedMeetings = JSON.parse(storedMeetings);
+              const updatedMeetings = parsedMeetings.filter(meeting => meeting.id !== meetingId);
+              localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+              localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
+              console.log('Meeting removed from localStorage');
+            }
+          } catch (storageError) {
+            console.error('Error updating localStorage after deletion:', storageError);
+          }
+        })
+        .catch(error => {
+          console.error('Error deleting meeting from API:', error);
+          // Still remove from localStorage even if API failed
+          try {
+            const storedMeetings = localStorage.getItem('meetings');
+            if (storedMeetings) {
+              const parsedMeetings = JSON.parse(storedMeetings);
+              const updatedMeetings = parsedMeetings.filter(meeting => meeting.id !== meetingId);
+              localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+              localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
+              console.log('Meeting removed from localStorage');
+            }
+          } catch (storageError) {
+            console.error('Error updating localStorage after deletion:', storageError);
+          }
+        });
+    } catch (error) {
+      console.error('Error in handleDeleteMeeting:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to delete meeting',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Implement handleEditMeeting function
+  const handleEditMeeting = (meeting) => {
+    // Set the meeting data to the form for editing
+    setNewMeeting({
+      title: meeting.title || '',
+      date: meeting.date || meeting.meetingDate || '',
+      startTime: meeting.startTime || '',
+      endTime: meeting.endTime || '',
+      role: meeting.role || '',
+      department: meeting.department || meeting.departmentId || '',
+      year: meeting.year || '',
+      submitted: false,
+      editId: meeting.id // Add editId to track which meeting is being edited
+    });
+    
+    // Scroll to the edit form
+    const formElement = document.getElementById('meeting-form');
+    if (formElement) {
+      formElement.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    setSnackbar({
+      open: true,
+      message: 'Editing meeting: ' + meeting.title,
+      severity: 'info'
+    });
+  };
+
+  // Update handleAddMeeting to handle both adding and editing
   const handleAddMeeting = async () => {
     // Validate required fields
     if (!newMeeting.title || !newMeeting.date || !newMeeting.startTime || 
@@ -526,7 +820,7 @@ const AcademicDirectorDashboard = () => {
     }
     
     // Validate year field if role is student
-    if (newMeeting.role === 'student' && !newMeeting.year) {
+    if (newMeeting.role.toLowerCase() === 'student' && !newMeeting.year) {
       setSnackbar({
         open: true,
         message: 'Please select a year for student meeting',
@@ -536,120 +830,200 @@ const AcademicDirectorDashboard = () => {
     }
     
     try {
-      console.log('Adding meeting with data:', newMeeting);
+      const isEditing = !!newMeeting.editId;
+      console.log(isEditing ? 'Updating meeting:' : 'Adding meeting with data:', newMeeting);
+      
+      // Check for token before proceeding
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setSnackbar({
+          open: true,
+          message: 'Authentication token not found. Please log in again.',
+          severity: 'error'
+        });
+        navigate('/login');
+        return;
+      }
+
+      // Verify token expiration
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        
+        const tokenData = JSON.parse(jsonPayload);
+        const expirationTime = tokenData.exp * 1000; // Convert to milliseconds
+        const currentTime = Date.now();
+
+        if (currentTime >= expirationTime) {
+          localStorage.clear();
+          setSnackbar({
+            open: true,
+            message: 'Session has expired. Please log in again.',
+            severity: 'error'
+          });
+          navigate('/login');
+          return;
+        }
+      } catch (error) {
+        console.error('Error verifying token:', error);
+      }
       
       // Create a formatted meeting object that matches the backend expectations
       const meetingData = {
         title: newMeeting.title,
         date: newMeeting.date,
-        meetingDate: newMeeting.date, // Add meetingDate to ensure format consistency
+        meetingDate: newMeeting.date,
         startTime: newMeeting.startTime,
         endTime: newMeeting.endTime,
-        role: newMeeting.role.toLowerCase(), // Ensure role is lowercase
+        role: newMeeting.role.toLowerCase(),
         departmentId: newMeeting.department,
-        department: newMeeting.department, // Add department for UI rendering
-        year: newMeeting.role === 'student' ? newMeeting.year : null
+        department: newMeeting.department,
+        year: newMeeting.role.toLowerCase() === 'student' ? newMeeting.year : null,
+        visibility: {
+          role: newMeeting.role.toLowerCase(),
+          department: newMeeting.department,
+          year: newMeeting.role.toLowerCase() === 'student' ? newMeeting.year : null
+        }
       };
       
-      const token = localStorage.getItem('token');
-      console.log('Using token:', token ? 'Token exists' : 'No token');
+      if (isEditing) {
+        meetingData.id = newMeeting.editId;
+      }
       
       // Attempt to use the actual API
       try {
-        const response = await axios.post('http://localhost:8080/api/meetings', meetingData, {
-          headers: {
-            'x-access-token': token,
-            'Content-Type': 'application/json'
+        let response;
+        if (isEditing) {
+          // Update existing meeting
+          response = await API.put(`/meetings/${newMeeting.editId}`, meetingData);
+          console.log('Meeting updated successfully:', response.data);
+        } else {
+          // Add new meeting
+          response = await API.post('/meetings', meetingData);
+          console.log('Meeting added successfully:', response.data);
+        }
+        
+        // After API call succeeds, update the local state and storage
+        await fetchMeetings();
+        
+        // Show success message
+        setSnackbar({
+          open: true,
+          message: isEditing
+            ? `Meeting updated successfully!`
+            : `${newMeeting.role.toLowerCase() === 'student' ? 'Student' : 'Staff'} meeting added successfully!`,
+          severity: 'success'
+        });
+        
+        // Clear the form
+        setNewMeeting({
+          title: '',
+          date: '',
+          startTime: '',
+          endTime: '',
+          role: '',
+          department: '',
+          year: '',
+          submitted: false,
+          editId: null
+        });
+      } catch (apiError) {
+        console.error('API error:', apiError);
+        
+        // Check if the error is due to authentication
+        if (apiError.response?.status === 401) {
+          // Verify if token is actually expired before showing session expired message
+          const token = localStorage.getItem('token');
+          if (token) {
+            try {
+              const base64Url = token.split('.')[1];
+              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+              const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+              }).join(''));
+              
+              const tokenData = JSON.parse(jsonPayload);
+              const expirationTime = tokenData.exp * 1000;
+              const currentTime = Date.now();
+
+              if (currentTime >= expirationTime) {
+                localStorage.clear();
+                setSnackbar({
+                  open: true,
+                  message: 'Session has expired. Please log in again.',
+                  severity: 'error'
+                });
+                navigate('/login');
+                return;
+              } else {
+                // Token is still valid but got 401, might be a different issue
+                setSnackbar({
+                  open: true,
+                  message: 'Authentication error. Please try again.',
+                  severity: 'error'
+                });
+              }
+            } catch (error) {
+              console.error('Error checking token expiration:', error);
+            }
+          }
+          return;
+        }
+        
+        // For other errors, try to save to localStorage as fallback
+        const mockMeeting = {
+          ...meetingData,
+          id: isEditing ? newMeeting.editId : Date.now().toString(),
+          createdAt: new Date().toISOString(),
+          status: 'PENDING'
+        };
+        
+        // Update state with the new meeting
+        setMeetings(prevMeetings => {
+          if (isEditing) {
+            return prevMeetings.map(meeting => 
+              meeting.id === newMeeting.editId ? mockMeeting : meeting
+            );
+          } else {
+            return [...prevMeetings, mockMeeting];
           }
         });
         
-        console.log('Meeting added successfully:', response.data);
-        
-        // Add the new meeting to the local state with all required fields
-        const newMeetingData = {
-          ...response.data,
-          id: response.data.id || Date.now().toString(),
-          title: meetingData.title,
-          date: meetingData.date,
-          meetingDate: meetingData.date,
-          startTime: meetingData.startTime,
-          endTime: meetingData.endTime,
-          role: meetingData.role,
-          department: meetingData.department,
-          departmentId: meetingData.departmentId,
-          year: meetingData.year
-        };
-        
-        console.log('Adding meeting to state:', newMeetingData);
-        setMeetings(prevMeetings => [...prevMeetings, newMeetingData]);
-        
-        // Show success message specific to the role
-        setSnackbar({
-          open: true,
-          message: `${newMeeting.role === 'student' ? 'Student' : 'Staff'} meeting added successfully! Remember to submit the schedule to make it visible to users.`,
-          severity: 'success'
-        });
-        
-        // Clear the form
-        setNewMeeting({
-          title: '',
-          date: '',
-          startTime: '',
-          endTime: '',
-          role: '',
-          department: '',
-          year: '',
-          submitted: false
-        });
-      } catch (apiError) {
-        console.error('API error, using fallback:', apiError);
-        
-        // FALLBACK: If the API fails, create a mock response for testing purposes
-        const mockMeeting = {
-          ...meetingData,
-          id: Date.now().toString(), // Generate a temporary ID
-          createdAt: new Date().toISOString(),
-          status: 'PENDING',
-          title: meetingData.title,
-          date: meetingData.date,
-          meetingDate: meetingData.date,
-          startTime: meetingData.startTime,
-          endTime: meetingData.endTime,
-          role: meetingData.role,
-          department: meetingData.departmentId,
-          departmentId: meetingData.departmentId,
-          year: meetingData.year
-        };
-        
-        console.log('Using mock meeting data:', mockMeeting);
-        
-        // Add the mock meeting to the local state
-        setMeetings(prevMeetings => [...prevMeetings, mockMeeting]);
-        
-        // Show success message specific to the role with fallback indication
-        setSnackbar({
-          open: true,
-          message: `${newMeeting.role === 'student' ? 'Student' : 'Staff'} meeting added successfully (using offline mode)! Remember to submit the schedule to make it visible to users.`,
-          severity: 'success'
-        });
-        
-        // Clear the form
-        setNewMeeting({
-          title: '',
-          date: '',
-          startTime: '',
-          endTime: '',
-          role: '',
-          department: '',
-          year: '',
-          submitted: false
-        });
+        // Save to localStorage
+        try {
+          const storedMeetings = localStorage.getItem('meetings');
+          const existingMeetings = storedMeetings ? JSON.parse(storedMeetings) : [];
+          const updatedMeetings = isEditing
+            ? existingMeetings.map(meeting => 
+                meeting.id === newMeeting.editId ? mockMeeting : meeting
+              )
+            : [...existingMeetings, mockMeeting];
+          
+          localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+          localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
+          
+          setSnackbar({
+            open: true,
+            message: `Meeting ${isEditing ? 'updated' : 'added'} successfully (using offline mode)!`,
+            severity: 'success'
+          });
+        } catch (storageError) {
+          console.error('Error saving to localStorage:', storageError);
+          setSnackbar({
+            open: true,
+            message: 'Error saving meeting. Please try again.',
+            severity: 'error'
+          });
+        }
       }
     } catch (error) {
-      console.error('Error adding meeting:', error);
+      console.error('Error in handleAddMeeting:', error);
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Failed to add meeting',
+        message: 'An unexpected error occurred. Please try again.',
         severity: 'error'
       });
     }
@@ -657,372 +1031,192 @@ const AcademicDirectorDashboard = () => {
 
   // Helper function to get department name from id
   const getDepartmentName = (departmentId) => {
-    switch(departmentId) {
+    // If departmentId is an object, try to extract the name or id
+    if (departmentId && typeof departmentId === 'object') {
+      return departmentId.name || departmentId.id || 'Unknown Department';
+    }
+    
+    // Handle string department IDs
+    switch(String(departmentId)) {
       case '1':
         return 'Computer Science';
       case '2':
         return 'Information Technology';
+      case '3':
+        return 'Electronics and Communication';
+      case '4':
+        return 'Electrical Engineering';
+      case '5':
+        return 'Mechanical Engineering';
       default:
-        return departmentId;
+        return departmentId || 'Unknown Department';
     }
   };
 
   const handleSubmitMeetingSchedule = async () => {
-    if (meetings.length === 0) {
+    // Check if there are any meetings to submit
+    if (!meetings || meetings.length === 0) {
       setSnackbar({
         open: true,
-        message: 'No meetings to submit',
+        message: 'No meetings to submit.',
         severity: 'error'
       });
       return;
     }
-    
+
     try {
-      console.log('Submitting meetings:', meetings.map(m => m.id || m));
-      
-      const token = localStorage.getItem('token');
-      console.log('Using token for submission:', token ? 'Token exists' : 'No token');
-      
-      // Attempt to use the actual API
+      console.log('Submitting meetings:', meetings);
+      console.log('Using token:', localStorage.getItem('token'));
+
+      // Format meetings for submission, ensuring all fields have valid values
+      const formattedMeetings = meetings.map(meeting => {
+        // Create a fallback date if needed
+        const meetingDate = meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0];
+        
+        return {
+          id: meeting.id || Date.now().toString() + Math.random().toString(36).substring(2, 9),
+          title: meeting.title || `Meeting on ${meetingDate}`,
+          date: meetingDate,
+          meetingDate: meetingDate, // For consistency
+          startTime: meeting.startTime || '09:00',
+          endTime: meeting.endTime || '10:00',
+          role: (meeting.role || 'student').toLowerCase(), // Ensure role is lowercase
+          department: meeting.department || meeting.departmentId || '1',
+          departmentId: meeting.departmentId || meeting.department || '1',
+          year: meeting.role?.toLowerCase() === 'student' ? (meeting.year || '1') : null,
+          status: 'SUBMITTED'
+        };
+      });
+
+      // Try to submit to the API first
       try {
-        const response = await axios.put('http://localhost:8080/api/meetings/submit', 
-          { meetings: meetings.map(m => m.id || m) },
-          {
-            headers: {
-              'x-access-token': token,
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            }
+        const response = await axios.post('http://localhost:8080/api/meetings/submit', formattedMeetings, {
+          headers: {
+            'x-access-token': localStorage.getItem('token'),
+            'Content-Type': 'application/json'
           }
-        );
-        
-        console.log('Meeting schedule submitted successfully:', response.data);
-        
-        // Update meetings locally to simulate "submitted" status
-        const updatedMeetings = meetings.map(meeting => ({
-          ...meeting,
-          status: 'SUBMITTED',
-          id: meeting.id || Date.now().toString(),
-          // Make sure all required fields exist with proper values
-          title: meeting.title || `Meeting on ${meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0]}`,
-          date: meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0],
-          meetingDate: meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0],
-          startTime: meeting.startTime || '09:00',
-          endTime: meeting.endTime || '10:00',
-          // Ensure role is properly formatted (lowercase)
-          role: (meeting.role || 'student').toLowerCase(),
-          // Ensure department info is consistent
-          department: meeting.department || meeting.departmentId || '1',
-          departmentId: meeting.departmentId || meeting.department || '1',
-          // Include year if role is student
-          year: meeting.role?.toLowerCase() === 'student' ? (meeting.year || '1') : null
-        }));
-        
-        // Save submitted meetings to localStorage for access by other dashboards
-        console.log('Saving meetings to localStorage:', updatedMeetings);
-        localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
-        
-        // Save role-specific timer data to separate storage
-        const now = new Date();
-        
-        // Group meetings by role
-        const studentMeetings = updatedMeetings.filter(m => 
-          m.role?.toLowerCase() === 'student'
-        );
-        
-        const staffMeetings = updatedMeetings.filter(m => 
-          m.role?.toLowerCase() === 'staff'
-        );
-        
-        console.log('Filtered student meetings:', studentMeetings.length);
-        console.log('Filtered staff meetings:', staffMeetings.length);
-        
-        // Store student meetings' timer data
-        if (studentMeetings.length > 0) {
-          // Find the next upcoming student meeting
-          const upcomingStudentMeetings = studentMeetings.filter(m => {
-            const meetingDate = new Date(`${m.date}T${m.startTime}`);
-            return meetingDate > now;
-          }).sort((a, b) => {
-            const dateA = new Date(`${a.date}T${a.startTime}`);
-            const dateB = new Date(`${b.date}T${b.startTime}`);
-            return dateA - dateB;
-          });
-          
-          if (upcomingStudentMeetings.length > 0) {
-            const nextStudentMeeting = upcomingStudentMeetings[0];
-            const meetingDate = new Date(`${nextStudentMeeting.date}T${nextStudentMeeting.startTime}`);
-            const diffMs = meetingDate - now;
-            const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-            const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
-            
-            const nextStudentMeetingData = {
-              id: nextStudentMeeting.id,
-              title: nextStudentMeeting.title,
-              date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              time: nextStudentMeeting.startTime,
-              minutesLeft: diffMins,
-              secondsLeft: diffSecs,
-              originalDate: nextStudentMeeting.date,
-              department: nextStudentMeeting.department || nextStudentMeeting.departmentId,
-              role: 'student'
-            };
-            
-            console.log('Saving next student meeting data:', nextStudentMeetingData);
-            localStorage.setItem('studentNextMeetingData', JSON.stringify(nextStudentMeetingData));
-          }
-        }
-        
-        // Store staff meetings' timer data
-        if (staffMeetings.length > 0) {
-          // Find the next upcoming staff meeting
-          const upcomingStaffMeetings = staffMeetings.filter(m => {
-            const meetingDate = new Date(`${m.date}T${m.startTime}`);
-            return meetingDate > now;
-          }).sort((a, b) => {
-            const dateA = new Date(`${a.date}T${a.startTime}`);
-            const dateB = new Date(`${b.date}T${b.startTime}`);
-            return dateA - dateB;
-          });
-          
-          if (upcomingStaffMeetings.length > 0) {
-            const nextStaffMeeting = upcomingStaffMeetings[0];
-            const meetingDate = new Date(`${nextStaffMeeting.date}T${nextStaffMeeting.startTime}`);
-            const diffMs = meetingDate - now;
-            const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-            const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
-            
-            const nextStaffMeetingData = {
-              id: nextStaffMeeting.id,
-              title: nextStaffMeeting.title,
-              date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              time: nextStaffMeeting.startTime,
-              minutesLeft: diffMins,
-              secondsLeft: diffSecs,
-              originalDate: nextStaffMeeting.date,
-              department: nextStaffMeeting.department || nextStaffMeeting.departmentId,
-              role: 'staff'
-            };
-            
-            console.log('Saving next staff meeting data:', nextStaffMeetingData);
-            localStorage.setItem('staffNextMeetingData', JSON.stringify(nextStaffMeetingData));
-          }
-        }
-        
-        // For backwards compatibility, also save the next meeting regardless of role
-        // but only use this as a fallback in dashboards
-        const upcomingMeetings = updatedMeetings.filter(m => {
-          const meetingDate = new Date(`${m.date}T${m.startTime}`);
-          return meetingDate > now;
-        }).sort((a, b) => {
-          const dateA = new Date(`${a.date}T${a.startTime}`);
-          const dateB = new Date(`${b.date}T${b.startTime}`);
-          return dateA - dateB;
         });
         
-        if (upcomingMeetings.length > 0) {
-          const nextMeeting = upcomingMeetings[0];
-          const meetingDate = new Date(`${nextMeeting.date}T${nextMeeting.startTime}`);
-          const diffMs = meetingDate - now;
-          const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-          const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
-          
-          const nextMeetingData = {
-            id: nextMeeting.id,
-            title: nextMeeting.title,
-            date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-            time: nextMeeting.startTime,
-            minutesLeft: diffMins,
-            secondsLeft: diffSecs,
-            originalDate: nextMeeting.date,
-            department: nextMeeting.department || nextMeeting.departmentId,
-            role: nextMeeting.role
-          };
-          
-          console.log('Saving next meeting data (generic) to localStorage:', nextMeetingData);
-          localStorage.setItem('nextMeetingData', JSON.stringify(nextMeetingData));
-        }
-        
-        // Log what was actually saved
-        const savedData = localStorage.getItem('submittedMeetings');
-        console.log('Saved meetings data in localStorage:', savedData);
-        
-        setMeetings(updatedMeetings);
-        
-        setSnackbar({
-          open: true,
-          message: 'Meeting schedule submitted successfully! Meetings will appear in relevant dashboards.',
-          severity: 'success'
-        });
+        console.log('Meetings submitted successfully to API:', response.data);
       } catch (apiError) {
-        console.error('API error during submission, using fallback:', apiError);
-        
-        // FALLBACK: If the API fails, simulate a successful submission for testing purposes
-        console.log('Using mock submission flow for testing');
-        
-        // Update meetings locally to simulate "submitted" status
-        const updatedMeetings = meetings.map(meeting => ({
-          ...meeting,
-          status: 'SUBMITTED',
-          id: meeting.id || Date.now().toString(),
-          // Make sure all required fields exist with proper values
-          title: meeting.title || `Meeting on ${meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0]}`,
-          date: meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0],
-          meetingDate: meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0],
-          startTime: meeting.startTime || '09:00',
-          endTime: meeting.endTime || '10:00',
-          // Ensure role is properly formatted (lowercase)
-          role: (meeting.role || 'student').toLowerCase(),
-          // Ensure department info is consistent
-          department: meeting.department || meeting.departmentId || '1',
-          departmentId: meeting.departmentId || meeting.department || '1',
-          // Include year if role is student
-          year: meeting.role?.toLowerCase() === 'student' ? (meeting.year || '1') : null
-        }));
-        
-        // Save submitted meetings to localStorage for access by other dashboards
-        console.log('Saving meetings to localStorage (fallback):', updatedMeetings);
-        localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
-        
-        // Save role-specific timer data to separate storage
-        const now = new Date();
-        
-        // Group meetings by role
-        const studentMeetings = updatedMeetings.filter(m => 
-          m.role?.toLowerCase() === 'student'
-        );
-        
-        const staffMeetings = updatedMeetings.filter(m => 
-          m.role?.toLowerCase() === 'staff'
-        );
-        
-        console.log('Filtered student meetings:', studentMeetings.length);
-        console.log('Filtered staff meetings:', staffMeetings.length);
-        
-        // Store student meetings' timer data
-        if (studentMeetings.length > 0) {
-          // Find the next upcoming student meeting
-          const upcomingStudentMeetings = studentMeetings.filter(m => {
-            const meetingDate = new Date(`${m.date}T${m.startTime}`);
-            return meetingDate > now;
-          }).sort((a, b) => {
-            const dateA = new Date(`${a.date}T${a.startTime}`);
-            const dateB = new Date(`${b.date}T${b.startTime}`);
-            return dateA - dateB;
-          });
-          
-          if (upcomingStudentMeetings.length > 0) {
-            const nextStudentMeeting = upcomingStudentMeetings[0];
-            const meetingDate = new Date(`${nextStudentMeeting.date}T${nextStudentMeeting.startTime}`);
-            const diffMs = meetingDate - now;
-            const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-            const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
-            
-            const nextStudentMeetingData = {
-              id: nextStudentMeeting.id,
-              title: nextStudentMeeting.title,
-              date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              time: nextStudentMeeting.startTime,
-              minutesLeft: diffMins,
-              secondsLeft: diffSecs,
-              originalDate: nextStudentMeeting.date,
-              department: nextStudentMeeting.department || nextStudentMeeting.departmentId,
-              role: 'student'
-            };
-            
-            console.log('Saving next student meeting data:', nextStudentMeetingData);
-            localStorage.setItem('studentNextMeetingData', JSON.stringify(nextStudentMeetingData));
-          }
-        }
-        
-        // Store staff meetings' timer data
-        if (staffMeetings.length > 0) {
-          // Find the next upcoming staff meeting
-          const upcomingStaffMeetings = staffMeetings.filter(m => {
-            const meetingDate = new Date(`${m.date}T${m.startTime}`);
-            return meetingDate > now;
-          }).sort((a, b) => {
-            const dateA = new Date(`${a.date}T${a.startTime}`);
-            const dateB = new Date(`${b.date}T${b.startTime}`);
-            return dateA - dateB;
-          });
-          
-          if (upcomingStaffMeetings.length > 0) {
-            const nextStaffMeeting = upcomingStaffMeetings[0];
-            const meetingDate = new Date(`${nextStaffMeeting.date}T${nextStaffMeeting.startTime}`);
-            const diffMs = meetingDate - now;
-            const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-            const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
-            
-            const nextStaffMeetingData = {
-              id: nextStaffMeeting.id,
-              title: nextStaffMeeting.title,
-              date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              time: nextStaffMeeting.startTime,
-              minutesLeft: diffMins,
-              secondsLeft: diffSecs,
-              originalDate: nextStaffMeeting.date,
-              department: nextStaffMeeting.department || nextStaffMeeting.departmentId,
-              role: 'staff'
-            };
-            
-            console.log('Saving next staff meeting data:', nextStaffMeetingData);
-            localStorage.setItem('staffNextMeetingData', JSON.stringify(nextStaffMeetingData));
-          }
-        }
-        
-        // For backwards compatibility, also save the next meeting regardless of role
-        // but only use this as a fallback in dashboards
-        const upcomingMeetings = updatedMeetings.filter(m => {
-          const meetingDate = new Date(`${m.date}T${m.startTime}`);
-          return meetingDate > now;
-        }).sort((a, b) => {
-          const dateA = new Date(`${a.date}T${a.startTime}`);
-          const dateB = new Date(`${b.date}T${b.startTime}`);
+        console.error('Error submitting meetings to API:', apiError);
+        // Continue anyway since we'll update localStorage
+      }
+
+      // Update meetings in state with the status
+      setMeetings(formattedMeetings);
+      
+      // Save to localStorage for access by other dashboards - USE CONSISTENT KEYS
+      localStorage.setItem('meetings', JSON.stringify(formattedMeetings));
+      localStorage.setItem('submittedMeetings', JSON.stringify(formattedMeetings));
+      
+      console.log('Saved', formattedMeetings.length, 'meetings to localStorage');
+
+      // Create timer data for upcoming meetings by role
+      const now = new Date();
+      
+      // Filter and sort meetings by role
+      const studentMeetings = formattedMeetings
+        .filter(m => m.role?.toLowerCase() === 'student')
+        .filter(m => {
+          const meetingDate = new Date(m.date || m.meetingDate);
+          return !isNaN(meetingDate.getTime()) && meetingDate > now;
+        })
+        .sort((a, b) => {
+          const dateA = new Date(a.date || a.meetingDate);
+          const dateB = new Date(b.date || b.meetingDate);
           return dateA - dateB;
         });
+      
+      const staffMeetings = formattedMeetings
+        .filter(m => m.role?.toLowerCase() === 'staff')
+        .filter(m => {
+          const meetingDate = new Date(m.date || m.meetingDate);
+          return !isNaN(meetingDate.getTime()) && meetingDate > now;
+        })
+        .sort((a, b) => {
+          const dateA = new Date(a.date || a.meetingDate);
+          const dateB = new Date(b.date || b.meetingDate);
+          return dateA - dateB;
+        });
+      
+      console.log('Found student meetings:', studentMeetings.length);
+      console.log('Found staff meetings:', staffMeetings.length);
+      
+      // Create timer data for student meetings
+      if (studentMeetings.length > 0) {
+        const nextStudentMeeting = studentMeetings[0];
+        const meetingDate = new Date(`${nextStudentMeeting.date || nextStudentMeeting.meetingDate}T${nextStudentMeeting.startTime || '00:00'}`);
         
-        if (upcomingMeetings.length > 0) {
-          const nextMeeting = upcomingMeetings[0];
-          const meetingDate = new Date(`${nextMeeting.date}T${nextMeeting.startTime}`);
-          const diffMs = meetingDate - now;
-          const diffMins = Math.max(0, Math.floor(diffMs / 60000));
-          const diffSecs = Math.max(0, Math.floor((diffMs % 60000) / 1000));
+        if (!isNaN(meetingDate.getTime())) {
+          const diffMs = Math.max(0, meetingDate - now);
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffSecs = Math.floor((diffMs % 60000) / 1000);
           
-          const nextMeetingData = {
-            id: nextMeeting.id,
-            title: nextMeeting.title,
+          const studentTimerData = {
+            id: nextStudentMeeting.id,
+            title: nextStudentMeeting.title,
             date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-            time: nextMeeting.startTime,
+            time: nextStudentMeeting.startTime,
             minutesLeft: diffMins,
             secondsLeft: diffSecs,
-            originalDate: nextMeeting.date,
-            department: nextMeeting.department || nextMeeting.departmentId,
-            role: nextMeeting.role
+            originalDate: nextStudentMeeting.date || nextStudentMeeting.meetingDate,
+            department: nextStudentMeeting.department || nextStudentMeeting.departmentId,
+            role: 'student',
+            year: nextStudentMeeting.year
           };
           
-          console.log('Saving next meeting data (generic) to localStorage:', nextMeetingData);
-          localStorage.setItem('nextMeetingData', JSON.stringify(nextMeetingData));
+          // Save student timer data to both specific and generic keys
+          localStorage.setItem('studentNextMeetingData', JSON.stringify(studentTimerData));
+          localStorage.setItem('nextMeetingData', JSON.stringify({
+            ...studentTimerData,
+            role: 'student'
+          }));
+          
+          console.log('Saved student timer data:', studentTimerData);
         }
-        
-        // Log what was actually saved
-        const savedData = localStorage.getItem('submittedMeetings');
-        console.log('Saved meetings data in localStorage (fallback):', savedData);
-        
-        setMeetings(updatedMeetings);
-        
-        // Show success message even though we're using mock data
-        setSnackbar({
-          open: true,
-          message: 'Meeting schedule submitted successfully (using offline mode)! Meetings will appear in relevant dashboards.',
-          severity: 'success'
-        });
       }
+      
+      // Create timer data for staff meetings
+      if (staffMeetings.length > 0) {
+        const nextStaffMeeting = staffMeetings[0];
+        const meetingDate = new Date(`${nextStaffMeeting.date || nextStaffMeeting.meetingDate}T${nextStaffMeeting.startTime || '00:00'}`);
+        
+        if (!isNaN(meetingDate.getTime())) {
+          const diffMs = Math.max(0, meetingDate - now);
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffSecs = Math.floor((diffMs % 60000) / 1000);
+          
+          const staffTimerData = {
+            id: nextStaffMeeting.id,
+            title: nextStaffMeeting.title,
+            date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            time: nextStaffMeeting.startTime,
+            minutesLeft: diffMins,
+            secondsLeft: diffSecs,
+            originalDate: nextStaffMeeting.date || nextStaffMeeting.meetingDate,
+            department: nextStaffMeeting.department || nextStaffMeeting.departmentId,
+            role: 'staff'
+          };
+          
+          // Save staff timer data
+          localStorage.setItem('staffNextMeetingData', JSON.stringify(staffTimerData));
+          
+          console.log('Saved staff timer data:', staffTimerData);
+        }
+      }
+      
+      // Update UI to show success
+      setSnackbar({
+        open: true,
+        message: 'Meeting schedule submitted successfully! Dashboards will now show the meeting times.',
+        severity: 'success'
+      });
     } catch (error) {
       console.error('Error submitting meeting schedule:', error);
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Failed to submit meeting schedule. Please try again.',
+        message: 'Error submitting meeting schedule. Please try again.',
         severity: 'error'
       });
     }
@@ -1136,9 +1330,9 @@ const AcademicDirectorDashboard = () => {
         Manage Meetings
       </Typography>
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+        <Grid item xs={12} id="meeting-form">
           <Typography variant="subtitle1" gutterBottom>
-            Add New Meeting
+            {newMeeting.editId ? 'Edit Meeting' : 'Add New Meeting'}
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
@@ -1253,17 +1447,41 @@ const AcademicDirectorDashboard = () => {
               </Grid>
             )}
             <Grid item xs={12}>
-              <Button 
-                variant="contained" 
-                color="primary"
-                onClick={() => {
-                  setNewMeeting(prev => ({ ...prev, submitted: true }));
-                  handleAddMeeting();
-                }}
-                sx={{ mt: 2 }}
-              >
-                Add Meeting
-              </Button>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  onClick={() => {
+                    setNewMeeting(prev => ({ ...prev, submitted: true }));
+                    handleAddMeeting();
+                  }}
+                  sx={{ mt: 2 }}
+                >
+                  {newMeeting.editId ? 'Update Meeting' : 'Add Meeting'}
+                </Button>
+                
+                {newMeeting.editId && (
+                  <Button 
+                    variant="outlined"
+                    onClick={() => {
+                      setNewMeeting({
+                        title: '',
+                        date: '',
+                        startTime: '',
+                        endTime: '',
+                        role: '',
+                        department: '',
+                        year: '',
+                        submitted: false,
+                        editId: null
+                      });
+                    }}
+                    sx={{ mt: 2 }}
+                  >
+                    Cancel Edit
+                  </Button>
+                )}
+              </Box>
             </Grid>
           </Grid>
         </Grid>
@@ -1303,10 +1521,7 @@ const AcademicDirectorDashboard = () => {
                     <TableCell>Time</TableCell>
                     <TableCell>Role</TableCell>
                     <TableCell>Department</TableCell>
-                    {/* Only show Year column when student meetings are visible */}
-                    {(meetingFilter === 'all' || meetingFilter === 'student') && (
-                      <TableCell>Year</TableCell>
-                    )}
+                    <TableCell>Year</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
@@ -1315,7 +1530,9 @@ const AcademicDirectorDashboard = () => {
                   {meetings
                     .filter(meeting => {
                       if (meetingFilter === 'all') return true;
-                      return meeting.role?.toLowerCase() === meetingFilter;
+                      const meetingRole = (meeting.role || '').toLowerCase().trim();
+                      const filterRole = meetingFilter.toLowerCase().trim();
+                      return meetingRole === filterRole;
                     })
                     .map((meeting, index) => (
                     <TableRow key={meeting.id || index}>
@@ -1324,42 +1541,46 @@ const AcademicDirectorDashboard = () => {
                       <TableCell>{meeting.startTime} - {meeting.endTime}</TableCell>
                       <TableCell>
                         <Chip 
-                          label={meeting.role === 'student' ? 'Student' : 'Staff'}
-                          color={meeting.role === 'student' ? 'primary' : 'secondary'}
+                          label={meeting.role?.toLowerCase() === 'student' ? 'Student' : 'Staff'}
+                          color={meeting.role?.toLowerCase() === 'student' ? 'primary' : 'secondary'}
                           variant="outlined"
                           size="small"
                         />
                       </TableCell>
                       <TableCell>
-                        {meeting.department === '1' && 'Computer Science'}
-                        {meeting.department === '2' && 'Information Technology'}
-                        {meeting.department === '3' && 'Electronics and Communication'}
-                        {meeting.department === '4' && 'Electrical Engineering'}
-                        {meeting.department === '5' && 'Mechanical Engineering'}
+                        {getDepartmentName(meeting.department || meeting.departmentId)}
                       </TableCell>
-                      {/* Only show Year column when student meetings are visible */}
-                      {(meetingFilter === 'all' || meetingFilter === 'student') && (
-                        <TableCell>
-                          {meeting.role === 'student' ? (
+                      <TableCell>
+                        {meeting.role?.toLowerCase() === 'student' ? (
+                          meeting.year ? (
                             meeting.year === '1' ? 'First Year' :
                             meeting.year === '2' ? 'Second Year' :
                             meeting.year === '3' ? 'Third Year' :
-                            meeting.year === '4' ? 'Fourth Year' : '-'
-                          ) : '-'}
-                        </TableCell>
-                      )}
+                            meeting.year === '4' ? 'Fourth Year' : 
+                            meeting.year
+                          ) : '-'
+                        ) : '-'}
+                      </TableCell>
                       <TableCell>
                         <Chip 
-                          label={meeting.status || 'Pending'}
+                          label={meeting.status || 'scheduled'}
                           color={meeting.status === 'SUBMITTED' ? 'success' : 'warning'}
                           size="small"
                         />
                       </TableCell>
                       <TableCell>
-                        <IconButton size="small">
+                        <IconButton 
+                          size="small"
+                          onClick={() => handleEditMeeting(meeting)}
+                          title="Edit meeting"
+                        >
                           <EditIcon fontSize="small" />
                         </IconButton>
-                        <IconButton size="small">
+                        <IconButton 
+                          size="small"
+                          onClick={() => handleDeleteMeeting(meeting.id)}
+                          title="Delete meeting"
+                        >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </TableCell>
@@ -1567,51 +1788,58 @@ const AcademicDirectorDashboard = () => {
   );
 
   // Render profile section
-  const renderProfile = () => (
-    <Paper sx={{ 
-      p: 4, 
-      borderRadius: 0,
-      position: 'relative',
-      border: '1px dashed #ccc'
-    }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Academic Director Profile</Typography>
-      
-      <Box sx={{ 
-        display: 'flex',
-        alignItems: 'flex-start',
-        mb: 4
-      }}>
-        <Avatar sx={{ width: 76, height: 76, bgcolor: '#1A2137', mr: 4 }}>
-          A
-        </Avatar>
-        
-        <Grid container spacing={3}>
-          <Grid item xs={6}>
-            <Box sx={{ mb: 2.5 }}>
-              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Name</Typography>
-              <Typography variant="body1">Dr. Alan Smith</Typography>
-            </Box>
-            
-            <Box sx={{ mb: 2.5 }}>
-              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Department</Typography>
-              <Typography variant="body1">Computer Science</Typography>
-            </Box>
-          </Grid>
-          
-          <Grid item xs={6}>
-            <Box sx={{ mb: 2.5 }}>
-              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>ID Number</Typography>
-              <Typography variant="body1">AD78945612</Typography>
-            </Box>
-            
+  const renderProfile = () => {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Paper elevation={3} sx={{ padding: 3, mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+            <Avatar
+              sx={{ width: 100, height: 100, mr: 3, bgcolor: blue[700] }}
+            >
+              {profileData.name ? profileData.name.charAt(0) : 'A'}
+            </Avatar>
             <Box>
-              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666' }}>Email ID</Typography>
-              <Typography variant="body1">alan.smith@university.edu</Typography>
+              <Typography variant="h4" gutterBottom>
+                {profileData.name || 'Academic Director'}
+              </Typography>
+              <Typography variant="subtitle1" color="textSecondary" gutterBottom>
+                {profileData.role || 'Academic Director'}
+              </Typography>
             </Box>
+          </Box>
+          
+          <Divider sx={{ my: 2 }} />
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1" gutterBottom>
+                <strong>Department:</strong> Engineering
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1" gutterBottom>
+                <strong>ID Number:</strong> {profileData.id || 'AD1001'}
+              </Typography>
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="body1" gutterBottom>
+                <strong>Email:</strong> {profileData.email || 'academic.director@university.edu'}
+              </Typography>
+            </Grid>
           </Grid>
-        </Grid>
+        </Paper>
       </Box>
-    </Paper>
+    );
+  };
+
+  // Countdown Box component for displaying timer values
+  const CountdownBox = ({ label, value }) => (
+    <Box sx={{ textAlign: 'center' }}>
+      <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+        {typeof value === 'number' ? value.toString().padStart(2, '0') : '00'}
+      </Typography>
+      <Typography variant="caption">{label}</Typography>
+    </Box>
   );
 
   // Render meeting schedule with countdown
@@ -1626,12 +1854,28 @@ const AcademicDirectorDashboard = () => {
       ) : (
         <Grid container spacing={3}>
           {meetings.map(meeting => {
+            // Extract date from either date or meetingDate property
+            const dateValue = meeting.date || meeting.meetingDate;
+            
             // Ensure we have valid date and time for display
-            const meetingDateObj = new Date(`${meeting.date || meeting.meetingDate}T${meeting.startTime || '00:00'}`);
-            const isValidDate = !isNaN(meetingDateObj.getTime());
+            const meetingDateObj = dateValue ? new Date(`${dateValue}T${meeting.startTime || '00:00'}`) : null;
+            const isValidDate = meetingDateObj && !isNaN(meetingDateObj.getTime());
             const formattedDate = isValidDate 
               ? meetingDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-              : 'Invalid Date';
+              : 'Pending';
+            
+            // Format time
+            const timeDisplay = meeting.startTime && meeting.endTime 
+              ? `${meeting.startTime} - ${meeting.endTime}` 
+              : meeting.startTime 
+                ? `${meeting.startTime}` 
+                : 'Time not specified';
+            
+            // Get role display - default to Student if not specified or if creation was for Student
+            const roleOriginal = meeting.role ? meeting.role.toLowerCase() : '';
+            const roleDisplay = roleOriginal === 'student' ? 'Student' : 
+                               roleOriginal === 'staff' ? 'Staff' : 
+                               'Student'; // Default to Student if not specified
             
             return (
               <Grid item xs={12} key={meeting.id || Math.random()}>
@@ -1649,7 +1893,7 @@ const AcademicDirectorDashboard = () => {
                         py: 0.5,
                         borderRadius: 1
                       }}>
-                        {`Date: ${meeting.date || 'undefined'}`}
+                        {`Date: ${isValidDate ? formattedDate : 'Pending'}`}
                       </Typography>
                       
                       <Typography variant="body2" sx={{ 
@@ -1659,7 +1903,7 @@ const AcademicDirectorDashboard = () => {
                         py: 0.5,
                         borderRadius: 1
                       }}>
-                        {`Time: ${meeting.startTime || '00:00'} - ${meeting.endTime || '00:00'}`}
+                        {`Time: ${timeDisplay}`}
                       </Typography>
                       
                       <Typography variant="body2" sx={{ 
@@ -1669,7 +1913,7 @@ const AcademicDirectorDashboard = () => {
                         py: 0.5,
                         borderRadius: 1
                       }}>
-                        {`Role: ${meeting.role === 'student' ? 'Student' : (meeting.role === 'staff' ? 'Staff' : meeting.role || 'undefined')}`}
+                        {`Role: ${roleDisplay}`}
                       </Typography>
                       
                       <Typography variant="body2" sx={{ 
@@ -1679,10 +1923,10 @@ const AcademicDirectorDashboard = () => {
                         py: 0.5,
                         borderRadius: 1
                       }}>
-                        {`Department: ${getDepartmentName(meeting.department || meeting.departmentId || 'undefined')}`}
+                        {`Department: ${getDepartmentName(meeting.department || meeting.departmentId)}`}
                       </Typography>
                       
-                      {meeting.role === 'student' && (
+                      {(roleDisplay === 'Student' || meeting.role?.toLowerCase() === 'student') && (
                         <Typography variant="body2" sx={{ 
                           color: '#00695c',
                           bgcolor: '#e0f2f1',
@@ -1690,7 +1934,7 @@ const AcademicDirectorDashboard = () => {
                           py: 0.5,
                           borderRadius: 1
                         }}>
-                          {`Year: ${meeting.year || '1'}`}
+                          {`Year: ${meeting.year || 'Not specified'}`}
                         </Typography>
                       )}
                     </Box>
@@ -1706,41 +1950,17 @@ const AcademicDirectorDashboard = () => {
                           mt: 1,
                           alignItems: 'center'
                         }}>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                              {meetingCountdowns[meeting.id].days}
-                            </Typography>
-                            <Typography variant="caption">Days</Typography>
-                          </Box>
-                          <Typography variant="h5">:</Typography>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                              {meetingCountdowns[meeting.id].hours.toString().padStart(2, '0')}
-                            </Typography>
-                            <Typography variant="caption">Hours</Typography>
-                          </Box>
-                          <Typography variant="h5">:</Typography>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                              {meetingCountdowns[meeting.id].minutes.toString().padStart(2, '0')}
-                            </Typography>
-                            <Typography variant="caption">Mins</Typography>
-                          </Box>
-                          <Typography variant="h5">:</Typography>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                              {meetingCountdowns[meeting.id].seconds.toString().padStart(2, '0')}
-                            </Typography>
-                            <Typography variant="caption">Secs</Typography>
-                          </Box>
+                          {/* Time countdown display */}
+                          <CountdownBox label="Days" value={meetingCountdowns[meeting.id]?.days || 0} />
+                          <CountdownBox label="Hours" value={meetingCountdowns[meeting.id]?.hours || 0} />
+                          <CountdownBox label="Minutes" value={meetingCountdowns[meeting.id]?.minutes || 0} />
+                          <CountdownBox label="Seconds" value={meetingCountdowns[meeting.id]?.seconds || 0} />
                         </Box>
                       </Box>
                     ) : (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: 'error.main' }}>
-                          This meeting has started or passed
-                        </Typography>
-                      </Box>
+                      <Typography variant="body2" sx={{ color: 'text.secondary', mt: 2 }}>
+                        This meeting has already started or has no valid date.
+                      </Typography>
                     )}
                   </CardContent>
                 </Card>

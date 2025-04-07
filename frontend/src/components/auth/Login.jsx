@@ -55,36 +55,48 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
       if (login.fulfilled.match(resultAction)) {
         // Get the role from the result
         const userRole = resultAction.payload.userRole;
-        // Remove ROLE_ prefix if present and convert to uppercase for consistent comparison
-        const normalizedRole = userRole.replace('ROLE_', '').toUpperCase();
         
-        // Store the normalized role in localStorage for consistent role checking
-        localStorage.setItem('userRole', normalizedRole);
+        console.log('Login response role:', userRole);
         
-        // Also update App.js state for backward compatibility
-        setIsAuthenticated(true);
-        setUserRole(normalizedRole);
-
-        // Determine target route based on normalized role
+        // Extract role for consistent dashboard routing
+        let normalizedRole = '';
         let targetRoute = '';
-        switch (normalizedRole) {
-          case 'STUDENT':
-            targetRoute = '/student-dashboard';
-            break;
-          case 'STAFF':
-            targetRoute = '/staff-dashboard';
-            break;
-          case 'ACADEMIC_DIRECTOR':
-            targetRoute = '/academic-director-dashboard';
-            break;
-          case 'EXECUTIVE_DIRECTOR':
-            targetRoute = '/executive-director-dashboard';
-            break;
-          default:
-            throw new Error(`Invalid user role: ${normalizedRole}`);
+        
+        // Normalize role
+        if (userRole && typeof userRole === 'string') {
+          // Convert to lowercase for consistent comparison
+          const roleLower = userRole.toLowerCase();
+          
+          if (roleLower.includes('student')) {
+            normalizedRole = 'student';
+                targetRoute = '/student-dashboard';
+          } else if (roleLower.includes('staff')) {
+            normalizedRole = 'staff';
+                targetRoute = '/staff-dashboard';
+          } else if (roleLower.includes('academic')) {
+            normalizedRole = 'academic-director';
+                targetRoute = '/academic-director-dashboard';
+          } else if (roleLower.includes('executive')) {
+            normalizedRole = 'executive-director';
+                targetRoute = '/executive-director-dashboard';
+          } else {
+            // Default
+            normalizedRole = roleLower;
+            throw new Error(`Unrecognized user role: ${userRole}`);
+          }
+        } else {
+          throw new Error('Invalid role data received from server');
         }
         
-        console.log(`Login successful. Navigating to ${targetRoute} with role: ${normalizedRole}`);
+        console.log(`Normalized role to: ${normalizedRole}, route: ${targetRoute}`);
+        
+        // Store the normalized role in localStorage with consistent format
+        localStorage.setItem('userRole', normalizedRole);
+        localStorage.setItem('isAuthenticated', 'true');
+        
+        // Update App.js state for backward compatibility
+        setIsAuthenticated(true);
+        setUserRole(normalizedRole);
         
         // Navigate to the appropriate dashboard
         navigate(targetRoute, { replace: true });
@@ -125,8 +137,8 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
           position: 'relative'
         }}
       >
-        <Box 
-          sx={{ 
+      <Box
+        sx={{
             position: 'absolute', 
             top: 20, 
             left: 20,
@@ -155,7 +167,7 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
         </Box>
         
         <Box sx={{ 
-          display: 'flex', 
+          display: 'flex',
           flexDirection: 'column',
           alignItems: 'center', 
           maxWidth: '80%',

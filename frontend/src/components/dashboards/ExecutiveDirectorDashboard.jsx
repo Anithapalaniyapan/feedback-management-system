@@ -47,10 +47,10 @@ const ExecutiveDirectorDashboard = () => {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('profile');
   const [userProfile, setUserProfile] = useState({
-    name: 'Dr. Sarah Johnson',
+    name: 'Executive Director',
     position: 'Executive Director',
-    email: 'sarah.johnson@university.edu',
-    department: 'University Administration'
+    email: 'executive.director@university.edu',
+    department: 'Engineering'
   });
   const [meetings, setMeetings] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -97,23 +97,35 @@ const ExecutiveDirectorDashboard = () => {
     const token = localStorage.getItem('token');
     const userRole = localStorage.getItem('userRole');
     
+    // Check for authentication
     if (!token) {
+      console.log('No token found, redirecting to login');
       navigate('/login');
       return;
     }
     
-    if (userRole !== 'EXECUTIVE_DIRECTOR' && userRole !== 'ROLE_EXECUTIVE_DIRECTOR') {
+    // Normalize and check role - be flexible with role format
+    const normalizedRole = userRole ? userRole.toLowerCase() : '';
+    const isExecutiveDirector = 
+      normalizedRole === 'executive_director' || 
+      normalizedRole === 'executive-director' || 
+      normalizedRole === 'executivedirector' ||
+      normalizedRole.includes('executive');
+    
+    if (!isExecutiveDirector) {
+      console.log(`Invalid role for executive director dashboard: ${userRole}`);
       setSnackbar({
         open: true,
         message: 'You do not have permission to access this dashboard',
         severity: 'error'
       });
       navigate('/login');
+      return;
     }
-  }, [navigate]);
-
-  // Fetch meetings
-  useEffect(() => {
+    
+    console.log('Authentication successful for Executive Director dashboard');
+    
+    // Load meetings or other necessary data
     const fetchMeetings = async () => {
       setLoading(true);
       try {
@@ -137,25 +149,77 @@ const ExecutiveDirectorDashboard = () => {
     };
 
     fetchMeetings();
+  }, [navigate]);
+
+  // Add a function to fetch user profile
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await axios.get('http://localhost:8080/api/users/profile', {
+          headers: {
+            'x-access-token': token
+          }
+        });
+        
+        console.log('User profile loaded successfully:', response.data);
+        // Update the userProfile state with data from API, but keep consistent name and department
+        if (response.data) {
+          setUserProfile({
+            name: 'Executive Director', // Always use "Executive Director" as the name
+            position: 'Executive Director',
+            email: response.data.email || 'executive.director@university.edu',
+            department: 'Engineering' // Always use "Engineering" as the department
+          });
+          
+          // Store in localStorage for future use
+          localStorage.setItem('userData', JSON.stringify(response.data));
+        }
+      } catch (error) {
+        console.error('Error loading user profile:', error);
+        // Use default profile data if API fails
+        setUserProfile({
+          name: 'Executive Director',
+          position: 'Executive Director',
+          email: 'executive.director@university.edu',
+          department: 'Engineering'
+        });
+      }
+    };
+
+    fetchUserProfile();
   }, []);
 
-  // Fetch departments
+  // Improved department fetch with better error handling
   useEffect(() => {
     const fetchDepartments = async () => {
       try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.error('No token available for fetching departments');
+          return;
+        }
+        
         const response = await axios.get('http://localhost:8080/api/departments', {
           headers: {
-            'x-access-token': localStorage.getItem('token')
+            'x-access-token': token
           }
         });
-        setDepartments(response.data);
+        
+        if (response.data) {
+          setDepartments(response.data);
+          console.log('Departments loaded successfully:', response.data);
+        }
       } catch (error) {
         console.error('Error fetching departments:', error);
-        setSnackbar({
-          open: true,
-          message: error.response?.data?.message || 'Failed to load departments',
-          severity: 'error'
-        });
+        // Load default departments if API fails
+        setDepartments([
+          { id: '1', name: 'Computer Science' },
+          { id: '2', name: 'Information Technology' },
+          { id: '3', name: 'Electronics and Communication' },
+          { id: '4', name: 'Electrical Engineering' },
+          { id: '5', name: 'Mechanical Engineering' }
+        ]);
       }
     };
 
@@ -404,90 +468,178 @@ const ExecutiveDirectorDashboard = () => {
     </Paper>
   );
 
+  // Helper function to get department name from id
+  const getDepartmentName = (departmentId) => {
+    // If departmentId is an object, try to extract the name or id
+    if (departmentId && typeof departmentId === 'object') {
+      return departmentId.name || departmentId.id || 'Unknown Department';
+    }
+    
+    // Handle string department IDs
+    switch(String(departmentId)) {
+      case '1':
+        return 'Computer Science';
+      case '2':
+        return 'Information Technology';
+      case '3':
+        return 'Electronics and Communication';
+      case '4':
+        return 'Electrical Engineering';
+      case '5':
+        return 'Mechanical Engineering';
+      default:
+        return departmentId || 'Unknown Department';
+    }
+  };
+  
+  // Render meeting list with formatted data
+  const renderMeetingCard = (meeting) => {
+    // Extract date from either date or meetingDate property
+    const dateValue = meeting.date || meeting.meetingDate;
+    
+    // Ensure we have valid date for display
+    const meetingDateObj = dateValue ? new Date(`${dateValue}T${meeting.startTime || '00:00'}`) : null;
+    const isValidDate = meetingDateObj && !isNaN(meetingDateObj.getTime());
+    const formattedDate = isValidDate 
+      ? meetingDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'Pending';
+    
+    // Get role display (default to Student if not specified or creation was for student)
+    const roleOriginal = meeting.role ? meeting.role.toLowerCase() : '';
+    const roleDisplay = roleOriginal === 'student' ? 'Student' : 
+                        roleOriginal === 'staff' ? 'Staff' : 'Student';
+    
+    // Format department name
+    const departmentName = getDepartmentName(meeting.department || meeting.departmentId);
+    
+    return (
+      <Grid item xs={12} key={meeting.id || Math.random()}>
+        <Card sx={{ mb: 3, borderRadius: 1, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              {meeting.title}
+            </Typography>
+            
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+              <Typography variant="body2" sx={{ 
+                color: 'primary.main',
+                bgcolor: '#e3f2fd',
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 1
+              }}>
+                {`Date: ${formattedDate}`}
+              </Typography>
+              
+              <Typography variant="body2" sx={{ 
+                color: 'success.main',
+                bgcolor: '#e8f5e9',
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 1
+              }}>
+                {`Time: ${meeting.startTime} - ${meeting.endTime}`}
+              </Typography>
+              
+              <Typography variant="body2" sx={{ 
+                color: '#ff6d00',
+                bgcolor: '#fff3e0',
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 1
+              }}>
+                {`Role: ${roleDisplay}`}
+              </Typography>
+              
+              <Typography variant="body2" sx={{ 
+                color: '#6a1b9a',
+                bgcolor: '#f3e5f5',
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 1
+              }}>
+                {`Department: ${departmentName}`}
+              </Typography>
+            </Box>
+            
+            {meeting.feedback && meeting.feedback.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2">Feedback Overview:</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {`${meeting.feedback.length} responses received`}
+                </Typography>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+    );
+  };
+
   // Render meetings section
   const renderMeetings = () => (
-    <Paper sx={{ 
-      p: 4, 
-      borderRadius: 0,
-      border: '1px dashed #ccc'
-    }}>
+    <Paper sx={{ p: 4, borderRadius: 0 }}>
       <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Meeting Schedule</Typography>
       
-      {meetings.length === 0 ? (
+      {loading ? (
+        <LinearProgress />
+      ) : error ? (
+        <Typography color="error">{error}</Typography>
+      ) : meetings.length === 0 ? (
         <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
           No meetings scheduled yet.
         </Typography>
       ) : (
         <Grid container spacing={3}>
-          {meetings.map(meeting => (
-            <Grid item xs={12} key={meeting.id}>
-              <Card sx={{ borderRadius: 0, mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    {meeting.title}
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-                    <Typography variant="body2" sx={{ 
-                      color: 'primary.main',
-                      bgcolor: '#e3f2fd',
-                      px: 1.5,
-                      py: 0.5,
-                      borderRadius: 1
-                    }}>
-                      {`Date: ${meeting.date}`}
-                    </Typography>
-                    
-                    <Typography variant="body2" sx={{ 
-                      color: 'success.main',
-                      bgcolor: '#e8f5e9',
-                      px: 1.5,
-                      py: 0.5,
-                      borderRadius: 1
-                    }}>
-                      {`Time: ${meeting.startTime} - ${meeting.endTime}`}
-                    </Typography>
-                    
-                    <Typography variant="body2" sx={{ 
-                      color: '#ff6d00',
-                      bgcolor: '#fff3e0',
-                      px: 1.5,
-                      py: 0.5,
-                      borderRadius: 1
-                    }}>
-                      {`Role: ${meeting.role === 'student' ? 'Student' : 'Staff'}`}
-                    </Typography>
-                    
-                    <Typography variant="body2" sx={{ 
-                      color: '#6a1b9a',
-                      bgcolor: '#f3e5f5',
-                      px: 1.5,
-                      py: 0.5,
-                      borderRadius: 1
-                    }}>
-                      {`Department: ${meeting.department === '1' ? 'Computer Science' : 
-                                     meeting.department === '2' ? 'Information Technology' : 
-                                     meeting.department}`}
-                    </Typography>
-                    
-                    {meeting.role === 'student' && (
-                      <Typography variant="body2" sx={{ 
-                        color: '#00695c',
-                        bgcolor: '#e0f2f1',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1
-                      }}>
-                        {`Year: ${meeting.year}`}
-                      </Typography>
-                    )}
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
+          {meetings.map((meeting) => renderMeetingCard(meeting))}
                 </Grid>
       )}
+      
+      {/* Debug button to load meetings from localStorage */}
+      <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+                  <Button
+          variant="outlined" 
+          size="small"
+          onClick={() => {
+            try {
+              const storedMeetings = localStorage.getItem('meetings');
+              if (storedMeetings) {
+                const parsedMeetings = JSON.parse(storedMeetings);
+                if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
+                  setMeetings(parsedMeetings);
+                  setSnackbar({
+                    open: true,
+                    message: `Loaded ${parsedMeetings.length} meetings from localStorage`,
+                    severity: 'success'
+                  });
+                } else {
+                  setSnackbar({
+                    open: true,
+                    message: 'No valid meetings found in localStorage',
+                    severity: 'warning'
+                  });
+                }
+              } else {
+                setSnackbar({
+                  open: true,
+                  message: 'No meetings found in localStorage',
+                  severity: 'info'
+                });
+              }
+            } catch (error) {
+              console.error('Error loading meetings from localStorage:', error);
+              setSnackbar({
+                open: true,
+                message: 'Error loading meetings from localStorage',
+                severity: 'error'
+              });
+            }
+          }}
+          sx={{ fontSize: '0.7rem', mt: 2 }}
+        >
+          Debug: Load meetings from localStorage
+                  </Button>
+      </Box>
     </Paper>
   );
 
