@@ -66,6 +66,7 @@ import MeetingManagement from '../student/dashboard/MeetingManagement';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import PeopleIcon from '@mui/icons-material/People';
 import { blue } from '@mui/material/colors';
+import { BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, ResponsiveContainer } from 'recharts';
 
 const AcademicDirectorDashboard = () => {
   const theme = useTheme();
@@ -203,71 +204,61 @@ const AcademicDirectorDashboard = () => {
 
   // Update fetchMeetings function
   const fetchMeetings = async () => {
+    setLoading(true);
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.error('No token found');
-        return;
+        throw new Error('No authentication token found');
       }
 
-      // First try to load from localStorage
-      const storedMeetings = localStorage.getItem('meetings');
-      if (storedMeetings) {
-        try {
-          const parsedMeetings = JSON.parse(storedMeetings);
-          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-            sortAndSetMeetings(parsedMeetings);
-            return;
+      // Try to fetch from API first
+      try {
+        const response = await axios.get('http://localhost:8080/api/meetings', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
-        } catch (error) {
-          console.error('Error parsing stored meetings:', error);
+        });
+        
+        if (response.data && Array.isArray(response.data)) {
+          // Store the meetings in localStorage for offline access
+          localStorage.setItem('meetings', JSON.stringify(response.data));
+          setMeetings(response.data);
         }
-      }
-
-      // If no valid meetings in localStorage, fetch from API
-      const response = await API.get('/meetings');
-      if (response.data && Array.isArray(response.data)) {
-        sortAndSetMeetings(response.data);
-      } else {
-        console.error('Invalid response format from API:', response.data);
-        // Create sample meetings as fallback
-        const sampleMeetings = [
-          {
-            id: '1',
-            title: 'Sample Student Meeting',
-            date: new Date().toISOString().split('T')[0],
-            startTime: '09:00',
-            endTime: '10:00',
-            role: 'student',
-            department: 'Engineering',
-            year: '2024'
-          },
-          {
-            id: '2',
-            title: 'Sample Staff Meeting',
-            date: new Date().toISOString().split('T')[0],
-            startTime: '11:00',
-            endTime: '12:00',
-            role: 'staff',
-            department: 'Engineering'
+      } catch (apiError) {
+        console.error('API fetch failed, trying localStorage:', apiError);
+        
+        // If API fails with 401, clear token and redirect to login
+        if (apiError.response?.status === 401) {
+          localStorage.removeItem('token');
+          setSnackbar({
+            open: true,
+            message: 'Session expired. Please log in again.',
+            severity: 'error'
+          });
+          navigate('/login');
+          return;
+        }
+        
+        // If API fails for other reasons, try to load from localStorage
+        const storedMeetings = localStorage.getItem('meetings');
+        if (storedMeetings) {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings)) {
+            setMeetings(parsedMeetings);
           }
-        ];
-        sortAndSetMeetings(sampleMeetings);
+        }
       }
     } catch (error) {
-      console.error('Error fetching meetings from API:', error);
-      // Try to load from localStorage as fallback
-      const storedMeetings = localStorage.getItem('meetings');
-      if (storedMeetings) {
-        try {
-          const parsedMeetings = JSON.parse(storedMeetings);
-          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-            sortAndSetMeetings(parsedMeetings);
-          }
-        } catch (error) {
-          console.error('Error parsing stored meetings:', error);
-        }
-      }
+      console.error('Error in fetchMeetings:', error);
+      setError(error.message);
+      setSnackbar({
+        open: true,
+        message: error.message || 'Failed to load meetings. Please try again later.',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -495,28 +486,52 @@ const AcademicDirectorDashboard = () => {
       return;
     }
 
-    // Create new question object
+    // Create new question object with proper targeting
     const newQuestionObj = {
-      id: Date.now(), // temporary id for UI
-      text: newQuestion,
-      targetRole: targetRole,
+      id: Date.now().toString(),
+      text: newQuestion.trim(),
+      targetRole: targetRole.toLowerCase().trim(),
       departmentId: department,
+      department: getDepartmentName(department),
       year: targetRole === 'student' ? year : null,
-      staff: targetRole === 'staff' ? staff : null,
-      meetingDate: meetingDate || null
+      meetingDate: meetingDate || null,
+      visibility: {
+        role: targetRole.toLowerCase().trim(),
+        department: department,
+        year: targetRole === 'student' ? year : null
+      },
+      responses: [], // Initialize empty responses array
+      analytics: {
+        totalResponses: 0,
+        averageScore: 0,
+        scoreDistribution: {
+          1: 0,
+          2: 0,
+          3: 0,
+          4: 0,
+          5: 0
+        },
+        respondentNames: {
+          1: [],
+          2: [],
+          3: [],
+          4: [],
+          5: []
+        }
+      }
     };
 
     // Add to questions list
     setQuestions([...questions, newQuestionObj]);
     
     // Clear input field
-    setNewQuestion('');
+      setNewQuestion('');
     
-    setSnackbar({
-      open: true,
-      message: 'Question added successfully',
-      severity: 'success'
-    });
+      setSnackbar({
+        open: true,
+        message: 'Question added successfully',
+        severity: 'success'
+      });
   };
 
   const handleUpdateQuestion = () => {
@@ -541,8 +556,8 @@ const AcademicDirectorDashboard = () => {
     );
 
     setQuestions(updatedQuestions);
-    setNewQuestion('');
-    setEditQuestionId(null);
+      setNewQuestion('');
+      setEditQuestionId(null);
     
     setSnackbar({
       open: true,
@@ -576,55 +591,57 @@ const AcademicDirectorDashboard = () => {
   };
 
   const handleSubmitQuestions = async () => {
-    // Check if there are any questions to submit
     if (!questions || questions.length === 0) {
-      setSnackbar({
-        open: true,
+        setSnackbar({
+          open: true,
         message: 'No questions to submit.',
-        severity: 'error'
-      });
-      return;
-    }
-
-    // Format questions for submission, ensuring all required fields are present
-    const formattedQuestions = questions.map(q => ({
-      id: q.id || Date.now().toString() + Math.random().toString(36).substring(2, 9),
-      text: q.text,
-      department: q.department || department, // Use the department state variable
-      year: q.year || '1', // Default to first year if not specified
-      status: 'SUBMITTED'
-    }));
+          severity: 'error'
+        });
+        return;
+      }
 
     try {
+      // Format questions for submission
+      const formattedQuestions = questions.map(q => ({
+        id: q.id,
+        text: q.text,
+        targetRole: q.targetRole,
+        departmentId: q.departmentId,
+        department: q.department,
+        year: q.year,
+        meetingDate: q.meetingDate,
+        visibility: q.visibility,
+        status: 'SUBMITTED'
+      }));
+
       // Try to submit to the API
       try {
         const response = await API.post('/questions/submit', formattedQuestions);
-        console.log('Questions submitted successfully to API:', response.data);
+        console.log('Questions submitted successfully:', response.data);
       } catch (apiError) {
         console.error('Error submitting questions to API:', apiError);
-        // Continue anyway since we'll update localStorage
+        // Continue with localStorage fallback
       }
 
       // Update questions in state
       setQuestions(formattedQuestions);
       
-      // Save to localStorage with MULTIPLE KEYS for consistent access
+      // Save to localStorage
       localStorage.setItem('questions', JSON.stringify(formattedQuestions));
       localStorage.setItem('submittedQuestions', JSON.stringify(formattedQuestions));
       
-      console.log('Saved', formattedQuestions.length, 'questions to localStorage');
+      // Update analytics data
+      const updatedAnalytics = {
+        studentOverall: calculateOverallScore(formattedQuestions, 'student'),
+        staffOverall: calculateOverallScore(formattedQuestions, 'staff'),
+        departmentWiseScores: calculateDepartmentWiseScores(formattedQuestions)
+      };
+      
+      setPerformanceSummary(updatedAnalytics);
+      localStorage.setItem('questionAnalytics', JSON.stringify(updatedAnalytics));
 
-      // Reset the new question form
-      setNewQuestion({
-        text: '',
-        department: department,
-        year: '',
-        status: 'DRAFT'
-      });
-
-      // Show success message
-      setSnackbar({
-        open: true,
+        setSnackbar({
+          open: true,
         message: 'Questions submitted successfully! They will now be available for feedback.',
         severity: 'success'
       });
@@ -633,9 +650,40 @@ const AcademicDirectorDashboard = () => {
       setSnackbar({
         open: true,
         message: 'Error submitting questions. Please try again.',
-        severity: 'error'
-      });
+          severity: 'error'
+        });
     }
+  };
+
+  // Helper function to calculate overall score
+  const calculateOverallScore = (questions, role) => {
+    const roleQuestions = questions.filter(q => q.targetRole === role);
+    if (roleQuestions.length === 0) return 0;
+    
+    const totalScore = roleQuestions.reduce((sum, q) => sum + (q.analytics?.averageScore || 0), 0);
+    return Math.round(totalScore / roleQuestions.length);
+  };
+
+  // Helper function to calculate department-wise scores
+  const calculateDepartmentWiseScores = (questions) => {
+    const departmentScores = {};
+    
+    questions.forEach(q => {
+      if (!departmentScores[q.department]) {
+        departmentScores[q.department] = {
+          totalScore: 0,
+          count: 0
+        };
+      }
+      
+      departmentScores[q.department].totalScore += q.analytics?.averageScore || 0;
+      departmentScores[q.department].count += 1;
+    });
+    
+    return Object.entries(departmentScores).map(([department, data]) => ({
+      department,
+      score: Math.round(data.totalScore / data.count)
+    }));
   };
 
   const handleCloseSnackbar = () => {
@@ -654,57 +702,46 @@ const AcademicDirectorDashboard = () => {
         return;
       }
 
-      // Get user role from localStorage
-      const userRole = localStorage.getItem('userRole');
-      if (userRole !== 'ACADEMIC_DIRECTOR') {
-        setSnackbar({
-          open: true,
-          message: 'Only academic directors can download reports',
-          severity: 'error'
-        });
-        return;
-      }
+      // Get questions and analytics data
+      const questions = JSON.parse(localStorage.getItem('submittedQuestions') || '[]');
+      const analytics = JSON.parse(localStorage.getItem('questionAnalytics') || '{}');
 
-      // Set up the request with proper authorization
-      const response = await fetch('http://localhost:8080/api/reports/download', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token.trim()}`
+      // Format report data
+      const reportData = {
+        department: 'Engineering', // Default department
+        year: new Date().getFullYear(),
+        questions: questions.map(q => ({
+          text: q.text,
+          targetRole: q.targetRole,
+          department: q.department,
+          year: q.year,
+          analytics: q.analytics || {
+            totalResponses: 0,
+            averageScore: 0,
+            scoreDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+            respondentNames: { 1: [], 2: [], 3: [], 4: [], 5: [] }
+          }
+        })),
+        overallAnalytics: analytics
+      };
+
+      // Generate PDF report
+      const response = await API.post('/reports/generate', reportData, {
+        responseType: 'blob',
+          headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
       });
 
-      if (!response.ok) {
-        // Handle error responses
-        if (response.status === 401) {
-          localStorage.clear();
-          setSnackbar({
-            open: true,
-            message: 'Your session has expired. Please log in again later.',
-            severity: 'error'
-          });
-          return;
-        } else if (response.status === 403) {
-          setSnackbar({
-            open: true,
-            message: 'You do not have permission to download reports. Please check your role permissions.',
-            severity: 'error'
-          });
-          return;
-        }
-        
-        throw new Error('Failed to download report');
-      }
-
-      // Handle successful response - typically a file download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'feedback-report.pdf'; // Or get filename from Content-Disposition header
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `feedback-report-${new Date().toISOString().split('T')[0]}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
 
       setSnackbar({
         open: true,
@@ -713,69 +750,79 @@ const AcademicDirectorDashboard = () => {
       });
     } catch (error) {
       console.error('Error downloading report:', error);
-      setSnackbar({
-        open: true,
-        message: error.message || 'Failed to download report. Please try again.',
-        severity: 'error'
-      });
+          setSnackbar({
+            open: true,
+        message: 'Failed to download report. Please try again.',
+            severity: 'error'
+          });
     }
   };
 
   // Implement handleDeleteMeeting function
   const handleDeleteMeeting = (meetingId) => {
-    // First try to delete via API
-    try {
-      // Optimistic UI update - remove from state first
-      setMeetings(prevMeetings => prevMeetings.filter(meeting => meeting.id !== meetingId));
-      
-      // Then try to delete from API
-      API.delete(`/meetings/${meetingId}`)
-        .then(response => {
-          console.log('Meeting deleted successfully:', response.data);
+    // Check token before proceeding
+    const token = localStorage.getItem('token');
+    if (!token) {
+          setSnackbar({
+            open: true,
+        message: 'Session expired. Please log in again.',
+            severity: 'error'
+          });
+      navigate('/login');
+      return;
+    }
+    
+    // First update the UI optimistically
+    setMeetings(prevMeetings => prevMeetings.filter(meeting => meeting.id !== meetingId));
+    
+    // Then try to delete from API
+    API.delete(`/meetings/${meetingId}`)
+      .then(response => {
+        console.log('Meeting deleted successfully:', response.data);
+        
+        // Update localStorage to keep it in sync
+        try {
+          const storedMeetings = JSON.parse(localStorage.getItem('meetings') || '[]');
+          const updatedMeetings = storedMeetings.filter(meeting => meeting.id !== meetingId);
+          localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+          localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
+          
           setSnackbar({
             open: true,
             message: 'Meeting deleted successfully',
             severity: 'success'
           });
+        } catch (storageError) {
+          console.error('Error updating localStorage after deletion:', storageError);
+        }
+      })
+      .catch(error => {
+        console.error('Error deleting meeting:', error);
+        
+        // If there's an API error, still try to delete from localStorage
+        try {
+          const storedMeetings = JSON.parse(localStorage.getItem('meetings') || '[]');
+          const updatedMeetings = storedMeetings.filter(meeting => meeting.id !== meetingId);
+          localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+          localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
           
-          // Update localStorage to keep it in sync
-          try {
-            const storedMeetings = localStorage.getItem('meetings');
-            if (storedMeetings) {
-              const parsedMeetings = JSON.parse(storedMeetings);
-              const updatedMeetings = parsedMeetings.filter(meeting => meeting.id !== meetingId);
-              localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
-              localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
-              console.log('Meeting removed from localStorage');
-            }
-          } catch (storageError) {
-            console.error('Error updating localStorage after deletion:', storageError);
-          }
-        })
-        .catch(error => {
-          console.error('Error deleting meeting from API:', error);
-          // Still remove from localStorage even if API failed
-          try {
-            const storedMeetings = localStorage.getItem('meetings');
-            if (storedMeetings) {
-              const parsedMeetings = JSON.parse(storedMeetings);
-              const updatedMeetings = parsedMeetings.filter(meeting => meeting.id !== meetingId);
-              localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
-              localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
-              console.log('Meeting removed from localStorage');
-            }
-          } catch (storageError) {
-            console.error('Error updating localStorage after deletion:', storageError);
-          }
+        setSnackbar({
+          open: true,
+            message: 'Meeting deleted from local storage',
+            severity: 'warning'
+          });
+        } catch (storageError) {
+          console.error('Error updating localStorage:', storageError);
+          // Revert the optimistic update if both API and localStorage fail
+          fetchMeetings();
+          
+        setSnackbar({
+          open: true,
+            message: 'Failed to delete meeting. Please try again.',
+          severity: 'error'
         });
-    } catch (error) {
-      console.error('Error in handleDeleteMeeting:', error);
-      setSnackbar({
-        open: true,
-        message: 'Failed to delete meeting',
-        severity: 'error'
+      }
       });
-    }
   };
 
   // Implement handleEditMeeting function
@@ -811,65 +858,45 @@ const AcademicDirectorDashboard = () => {
     // Validate required fields
     if (!newMeeting.title || !newMeeting.date || !newMeeting.startTime || 
         !newMeeting.endTime || !newMeeting.role || !newMeeting.department) {
-      setSnackbar({
-        open: true,
+        setSnackbar({
+          open: true,
         message: 'Please fill all required fields',
-        severity: 'error'
-      });
-      return;
-    }
-    
+          severity: 'error'
+        });
+        return;
+      }
+
     // Validate year field if role is student
-    if (newMeeting.role.toLowerCase() === 'student' && !newMeeting.year) {
+    if (newMeeting.role.toLowerCase().trim() === 'student' && !newMeeting.year) {
+        setSnackbar({
+          open: true,
+        message: 'Please select a year for student meeting',
+          severity: 'error'
+        });
+        return;
+      }
+
+    // Check token before proceeding
+    const token = localStorage.getItem('token');
+    if (!token) {
       setSnackbar({
         open: true,
-        message: 'Please select a year for student meeting',
+        message: 'Session expired. Please log in again.',
         severity: 'error'
       });
+      navigate('/login');
       return;
     }
     
     try {
       const isEditing = !!newMeeting.editId;
-      console.log(isEditing ? 'Updating meeting:' : 'Adding meeting with data:', newMeeting);
       
-      // Check for token before proceeding
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setSnackbar({
-          open: true,
-          message: 'Authentication token not found. Please log in again.',
-          severity: 'error'
-        });
-        navigate('/login');
-        return;
-      }
-
-      // Verify token expiration
-      try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        
-        const tokenData = JSON.parse(jsonPayload);
-        const expirationTime = tokenData.exp * 1000; // Convert to milliseconds
-        const currentTime = Date.now();
-
-        if (currentTime >= expirationTime) {
-          localStorage.clear();
-          setSnackbar({
-            open: true,
-            message: 'Session has expired. Please log in again.',
-            severity: 'error'
-          });
-          navigate('/login');
-          return;
-        }
-      } catch (error) {
-        console.error('Error verifying token:', error);
-      }
+      // Preserve the exact role as selected
+      const selectedRole = newMeeting.role;
+      const normalizedRole = selectedRole.toLowerCase().trim();
+      const isStudent = normalizedRole === 'student';
+      
+      console.log(isEditing ? 'Updating meeting:' : 'Adding meeting with data:', newMeeting);
       
       // Create a formatted meeting object that matches the backend expectations
       const meetingData = {
@@ -878,43 +905,57 @@ const AcademicDirectorDashboard = () => {
         meetingDate: newMeeting.date,
         startTime: newMeeting.startTime,
         endTime: newMeeting.endTime,
-        role: newMeeting.role.toLowerCase(),
+        role: selectedRole, // Store the exact selected role
         departmentId: newMeeting.department,
         department: newMeeting.department,
-        year: newMeeting.role.toLowerCase() === 'student' ? newMeeting.year : null,
+        year: isStudent ? newMeeting.year : null,
+        status: 'SCHEDULED',
         visibility: {
-          role: newMeeting.role.toLowerCase(),
+          role: normalizedRole,
           department: newMeeting.department,
-          year: newMeeting.role.toLowerCase() === 'student' ? newMeeting.year : null
+          year: isStudent ? newMeeting.year : null,
+          academicDirector: true,
+          executiveDirector: true,
+          staff: normalizedRole === 'staff',
+          student: normalizedRole === 'student'
         }
       };
       
       if (isEditing) {
         meetingData.id = newMeeting.editId;
+      } else {
+        meetingData.id = Date.now().toString();
       }
       
       // Attempt to use the actual API
       try {
         let response;
         if (isEditing) {
-          // Update existing meeting
           response = await API.put(`/meetings/${newMeeting.editId}`, meetingData);
           console.log('Meeting updated successfully:', response.data);
         } else {
-          // Add new meeting
           response = await API.post('/meetings', meetingData);
           console.log('Meeting added successfully:', response.data);
         }
         
         // After API call succeeds, update the local state and storage
-        await fetchMeetings();
+        const updatedMeetings = isEditing 
+          ? meetings.map(m => m.id === meetingData.id ? meetingData : m)
+          : [...meetings, meetingData];
+        
+        // Update state
+        setMeetings(updatedMeetings);
+        
+        // Update localStorage with the complete meeting data
+        localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+        localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
         
         // Show success message
         setSnackbar({
           open: true,
           message: isEditing
             ? `Meeting updated successfully!`
-            : `${newMeeting.role.toLowerCase() === 'student' ? 'Student' : 'Staff'} meeting added successfully!`,
+            : `${selectedRole} meeting added successfully!`,
           severity: 'success'
         });
         
@@ -933,91 +974,33 @@ const AcademicDirectorDashboard = () => {
       } catch (apiError) {
         console.error('API error:', apiError);
         
-        // Check if the error is due to authentication
         if (apiError.response?.status === 401) {
-          // Verify if token is actually expired before showing session expired message
-          const token = localStorage.getItem('token');
-          if (token) {
-            try {
-              const base64Url = token.split('.')[1];
-              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-              const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-              }).join(''));
-              
-              const tokenData = JSON.parse(jsonPayload);
-              const expirationTime = tokenData.exp * 1000;
-              const currentTime = Date.now();
-
-              if (currentTime >= expirationTime) {
-                localStorage.clear();
-                setSnackbar({
-                  open: true,
-                  message: 'Session has expired. Please log in again.',
-                  severity: 'error'
-                });
-                navigate('/login');
-                return;
-              } else {
-                // Token is still valid but got 401, might be a different issue
-                setSnackbar({
-                  open: true,
-                  message: 'Authentication error. Please try again.',
-                  severity: 'error'
-                });
-              }
-            } catch (error) {
-              console.error('Error checking token expiration:', error);
-            }
-          }
+          setSnackbar({
+            open: true,
+            message: 'Session expired. Please log in again.',
+            severity: 'error'
+          });
+          navigate('/login');
           return;
         }
         
-        // For other errors, try to save to localStorage as fallback
-        const mockMeeting = {
-          ...meetingData,
-          id: isEditing ? newMeeting.editId : Date.now().toString(),
-          createdAt: new Date().toISOString(),
-          status: 'PENDING'
-        };
+        // For other errors, save to localStorage as fallback
+        const updatedMeetings = isEditing 
+          ? meetings.map(m => m.id === meetingData.id ? meetingData : m)
+          : [...meetings, meetingData];
         
-        // Update state with the new meeting
-        setMeetings(prevMeetings => {
-          if (isEditing) {
-            return prevMeetings.map(meeting => 
-              meeting.id === newMeeting.editId ? mockMeeting : meeting
-            );
-          } else {
-            return [...prevMeetings, mockMeeting];
-          }
-        });
+        // Update state
+        setMeetings(updatedMeetings);
         
         // Save to localStorage
-        try {
-          const storedMeetings = localStorage.getItem('meetings');
-          const existingMeetings = storedMeetings ? JSON.parse(storedMeetings) : [];
-          const updatedMeetings = isEditing
-            ? existingMeetings.map(meeting => 
-                meeting.id === newMeeting.editId ? mockMeeting : meeting
-              )
-            : [...existingMeetings, mockMeeting];
-          
-          localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
-          localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
-          
+        localStorage.setItem('meetings', JSON.stringify(updatedMeetings));
+        localStorage.setItem('submittedMeetings', JSON.stringify(updatedMeetings));
+        
           setSnackbar({
             open: true,
-            message: `Meeting ${isEditing ? 'updated' : 'added'} successfully (using offline mode)!`,
-            severity: 'success'
-          });
-        } catch (storageError) {
-          console.error('Error saving to localStorage:', storageError);
-          setSnackbar({
-            open: true,
-            message: 'Error saving meeting. Please try again.',
-            severity: 'error'
-          });
-        }
+          message: `Meeting ${isEditing ? 'updated' : 'added'} successfully (using offline mode)!`,
+          severity: 'success'
+        });
       }
     } catch (error) {
       console.error('Error in handleAddMeeting:', error);
@@ -1059,11 +1042,11 @@ const AcademicDirectorDashboard = () => {
       setSnackbar({
         open: true,
         message: 'No meetings to submit.',
-        severity: 'error'
-      });
-      return;
-    }
-
+            severity: 'error'
+          });
+          return;
+        }
+        
     try {
       console.log('Submitting meetings:', meetings);
       console.log('Using token:', localStorage.getItem('token'));
@@ -1072,6 +1055,8 @@ const AcademicDirectorDashboard = () => {
       const formattedMeetings = meetings.map(meeting => {
         // Create a fallback date if needed
         const meetingDate = meeting.date || meeting.meetingDate || new Date().toISOString().split('T')[0];
+        const normalizedRole = (meeting.role || 'student').toLowerCase().trim();
+        const isStudent = normalizedRole === 'student';
         
         return {
           id: meeting.id || Date.now().toString() + Math.random().toString(36).substring(2, 9),
@@ -1080,17 +1065,27 @@ const AcademicDirectorDashboard = () => {
           meetingDate: meetingDate, // For consistency
           startTime: meeting.startTime || '09:00',
           endTime: meeting.endTime || '10:00',
-          role: (meeting.role || 'student').toLowerCase(), // Ensure role is lowercase
+          role: normalizedRole, // Ensure role is lowercase and trimmed
           department: meeting.department || meeting.departmentId || '1',
           departmentId: meeting.departmentId || meeting.department || '1',
-          year: meeting.role?.toLowerCase() === 'student' ? (meeting.year || '1') : null,
-          status: 'SUBMITTED'
+          year: isStudent ? (meeting.year || '1') : null,
+          status: 'SUBMITTED',
+          visibility: {
+            role: normalizedRole,
+            department: meeting.department || meeting.departmentId || '1',
+            year: isStudent ? (meeting.year || '1') : null,
+            academicDirector: true,
+            executiveDirector: true,
+            staff: normalizedRole === 'staff',
+            student: normalizedRole === 'student'
+          }
         };
       });
 
       // Try to submit to the API first
       try {
-        const response = await axios.post('http://localhost:8080/api/meetings/submit', formattedMeetings, {
+        // Changed from /api/meetings/submit to /api/meetings
+        const response = await axios.post('http://localhost:8080/api/meetings', formattedMeetings, {
           headers: {
             'x-access-token': localStorage.getItem('token'),
             'Content-Type': 'application/json'
@@ -1414,11 +1409,11 @@ const AcademicDirectorDashboard = () => {
                   label="Department"
                   onChange={(e) => setNewMeeting({ ...newMeeting, department: e.target.value })}
                 >
-                  <MenuItem value="1">Computer Science</MenuItem>
-                  <MenuItem value="2">Information Technology</MenuItem>
-                  <MenuItem value="3">Electronics and Communication</MenuItem>
-                  <MenuItem value="4">Electrical Engineering</MenuItem>
-                  <MenuItem value="5">Mechanical Engineering</MenuItem>
+                  {departments.map(dept => (
+                    <MenuItem key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
                 </Select>
                 {!newMeeting.department && newMeeting.submitted && (
                   <FormHelperText>Department is required</FormHelperText>
@@ -1534,58 +1529,58 @@ const AcademicDirectorDashboard = () => {
                       const filterRole = meetingFilter.toLowerCase().trim();
                       return meetingRole === filterRole;
                     })
-                    .map((meeting, index) => (
-                    <TableRow key={meeting.id || index}>
-                      <TableCell>{meeting.title}</TableCell>
-                      <TableCell>{meeting.date}</TableCell>
-                      <TableCell>{meeting.startTime} - {meeting.endTime}</TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={meeting.role?.toLowerCase() === 'student' ? 'Student' : 'Staff'}
-                          color={meeting.role?.toLowerCase() === 'student' ? 'primary' : 'secondary'}
-                          variant="outlined"
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {getDepartmentName(meeting.department || meeting.departmentId)}
-                      </TableCell>
-                      <TableCell>
-                        {meeting.role?.toLowerCase() === 'student' ? (
-                          meeting.year ? (
-                            meeting.year === '1' ? 'First Year' :
-                            meeting.year === '2' ? 'Second Year' :
-                            meeting.year === '3' ? 'Third Year' :
-                            meeting.year === '4' ? 'Fourth Year' : 
-                            meeting.year
-                          ) : '-'
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={meeting.status || 'scheduled'}
-                          color={meeting.status === 'SUBMITTED' ? 'success' : 'warning'}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <IconButton 
-                          size="small"
-                          onClick={() => handleEditMeeting(meeting)}
-                          title="Edit meeting"
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton 
-                          size="small"
-                          onClick={() => handleDeleteMeeting(meeting.id)}
-                          title="Delete meeting"
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                    .map((meeting, index) => {
+                      // Safely handle undefined role with a default value
+                      const roleDisplay = meeting.role || 'Not specified';
+                      const normalizedRole = roleDisplay.toLowerCase().trim();
+
+  return (
+                        <TableRow key={meeting.id || index}>
+                          <TableCell>{meeting.title}</TableCell>
+                          <TableCell>
+                            {new Date(meeting.date || meeting.meetingDate).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>{meeting.startTime} - {meeting.endTime}</TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={roleDisplay}
+                              color={normalizedRole === 'student' ? 'primary' : 'secondary'}
+                              variant="outlined"
+                              size="small"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {getDepartmentName(meeting.department || meeting.departmentId)}
+                          </TableCell>
+                          <TableCell>
+                            {normalizedRole === 'student' ? (meeting.year || '-') : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Chip 
+                              label="scheduled"
+                              color="warning"
+                              size="small"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <IconButton 
+                              size="small"
+                              onClick={() => handleEditMeeting(meeting)}
+                              title="Edit meeting"
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton 
+                              size="small"
+                              onClick={() => handleDeleteMeeting(meeting.id)}
+                              title="Delete meeting"
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -1607,61 +1602,182 @@ const AcademicDirectorDashboard = () => {
   );
 
   // Render analytics section with performance charts
-  const renderAnalytics = () => (
-    <Paper sx={{ 
-      p: 4, 
-      borderRadius: 0,
-      border: '1px dashed #ccc'
-    }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Performance Analytics</Typography>
-      
-      <Grid container spacing={3}>
-        {/* Student Performance Section */}
-        <Grid item xs={12}>
-          <Typography variant="h6" sx={{ mt: 2, mb: 2, fontWeight: 'bold' }}>Student Performance</Typography>
-        </Grid>
+  const renderAnalytics = () => {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          Feedback Analytics
+        </Typography>
         
-        <Grid item xs={12} sm={6}>
-          <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                Student Overall Performance
+        <Grid container spacing={3}>
+          {/* Student Performance */}
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Student Performance
               </Typography>
-              <Typography variant="h5" sx={{ mt: 1, color: '#1A2137' }}>
-                {performanceSummary.studentOverall}%
+              <Box sx={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={[
+                    { name: 'Excellent', value: performanceSummary.studentOverall >= 4.5 ? 100 : 0 },
+                    { name: 'Good', value: performanceSummary.studentOverall >= 3.5 && performanceSummary.studentOverall < 4.5 ? 100 : 0 },
+                    { name: 'Average', value: performanceSummary.studentOverall >= 2.5 && performanceSummary.studentOverall < 3.5 ? 100 : 0 },
+                    { name: 'Below Average', value: performanceSummary.studentOverall < 2.5 ? 100 : 0 }
+                  ]}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#8884d8" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
+          </Grid>
+
+          {/* Staff Performance */}
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Staff Performance
               </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12}>
-          {renderStudentPerformanceChart()}
-        </Grid>
-        
-        {/* Staff Performance Section */}
-        <Grid item xs={12}>
-          <Typography variant="h6" sx={{ mt: 2, mb: 2, fontWeight: 'bold' }}>Staff Performance</Typography>
-        </Grid>
-        
-        <Grid item xs={12} sm={6}>
-          <Card sx={{ borderRadius: 0, bgcolor: '#f8f9fa' }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                Staff Overall Performance
+              <Box sx={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={[
+                    { name: 'Excellent', value: performanceSummary.staffOverall >= 4.5 ? 100 : 0 },
+                    { name: 'Good', value: performanceSummary.staffOverall >= 3.5 && performanceSummary.staffOverall < 4.5 ? 100 : 0 },
+                    { name: 'Average', value: performanceSummary.staffOverall >= 2.5 && performanceSummary.staffOverall < 3.5 ? 100 : 0 },
+                    { name: 'Below Average', value: performanceSummary.staffOverall < 2.5 ? 100 : 0 }
+                  ]}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#82ca9d" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
+          </Grid>
+
+          {/* Department-wise Performance */}
+          <Grid item xs={12}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Department-wise Performance
               </Typography>
-              <Typography variant="h5" sx={{ mt: 1, color: '#1A2137' }}>
-                {performanceSummary.staffOverall}%
-              </Typography>
-            </CardContent>
-          </Card>
+              <Box sx={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={performanceSummary.departmentWiseScores}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="department" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="score" fill="#ffc658" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
+          </Grid>
         </Grid>
+      </Box>
+    );
+  };
+
+  const renderReports = () => {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          Reports
+        </Typography>
         
-        <Grid item xs={12}>
-          {renderStaffPerformanceChart()}
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Generate Feedback Report
+          </Typography>
+          <Button
+                variant="contained"
+                color="primary"
+                onClick={handleDownloadReport}
+                startIcon={<DownloadIcon />}
+              >
+                Download Report
+          </Button>
+            </Paper>
+          </Grid>
         </Grid>
-      </Grid>
-    </Paper>
-  );
+      </Box>
+    );
+  };
+
+  const renderViewMeetingSchedule = () => {
+    return (
+      <Paper sx={{ p: 4, borderRadius: 0 }}>
+        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>View Meeting Schedule</Typography>
+        
+        {meetings.length === 0 ? (
+          <Paper sx={{ p: 3, textAlign: 'center', bgcolor: '#f5f5f7', borderRadius: 1 }}>
+            <Typography>No meetings scheduled yet.</Typography>
+          </Paper>
+        ) : (
+          <TableContainer component={Paper} sx={{ borderRadius: 1, boxShadow: 'none', border: '1px solid #e0e0e0' }}>
+            <Table>
+              <TableHead sx={{ bgcolor: '#f5f5f7' }}>
+                <TableRow>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Time</TableCell>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell>Year</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {meetings.map((meeting, index) => {
+                  const dateValue = meeting.date || meeting.meetingDate;
+                  const formattedDate = dateValue ? new Date(dateValue).toLocaleDateString() : '';
+                  const roleDisplay = meeting.role || '';
+                  const timeDisplay = meeting.startTime && meeting.endTime
+                    ? `${meeting.startTime} - ${meeting.endTime}`
+                    : '';
+                  const departmentName = getDepartmentName(meeting.department || meeting.departmentId);
+                  const yearDisplay = roleDisplay.toLowerCase().trim() === 'student' ? (meeting.year || '-') : '-';
+
+                  return (
+                    <TableRow key={meeting.id || index}>
+                      <TableCell>{meeting.title}</TableCell>
+                      <TableCell>{formattedDate}</TableCell>
+                      <TableCell>{timeDisplay}</TableCell>
+                      <TableCell>
+                        <Chip 
+                          label={roleDisplay}
+                          color={roleDisplay.toLowerCase().trim() === 'student' ? 'primary' : 'secondary'}
+                          variant="outlined"
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>{departmentName}</TableCell>
+                      <TableCell>{yearDisplay}</TableCell>
+                      <TableCell>
+                        <Chip 
+                          label="Scheduled"
+                          color="warning"
+                          size="small"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Paper>
+    );
+  };
 
   // Render dashboard overview section
   const renderDashboard = () => (
@@ -1790,7 +1906,7 @@ const AcademicDirectorDashboard = () => {
   // Render profile section
   const renderProfile = () => {
     return (
-      <Box sx={{ p: 3 }}>
+          <Box sx={{ p: 3 }}>
         <Paper elevation={3} sx={{ padding: 3, mb: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
             <Avatar
@@ -1827,8 +1943,8 @@ const AcademicDirectorDashboard = () => {
               </Typography>
             </Grid>
           </Grid>
-        </Paper>
-      </Box>
+            </Paper>
+          </Box>
     );
   };
 
@@ -1840,136 +1956,6 @@ const AcademicDirectorDashboard = () => {
       </Typography>
       <Typography variant="caption">{label}</Typography>
     </Box>
-  );
-
-  // Render meeting schedule with countdown
-  const renderViewMeetingSchedule = () => (
-    <Paper sx={{ p: 4, borderRadius: 0, border: '1px dashed #ccc' }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>View Meeting Schedule</Typography>
-      
-      {meetings.length === 0 ? (
-        <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
-          No meetings scheduled yet.
-        </Typography>
-      ) : (
-        <Grid container spacing={3}>
-          {meetings.map(meeting => {
-            // Extract date from either date or meetingDate property
-            const dateValue = meeting.date || meeting.meetingDate;
-            
-            // Ensure we have valid date and time for display
-            const meetingDateObj = dateValue ? new Date(`${dateValue}T${meeting.startTime || '00:00'}`) : null;
-            const isValidDate = meetingDateObj && !isNaN(meetingDateObj.getTime());
-            const formattedDate = isValidDate 
-              ? meetingDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-              : 'Pending';
-            
-            // Format time
-            const timeDisplay = meeting.startTime && meeting.endTime 
-              ? `${meeting.startTime} - ${meeting.endTime}` 
-              : meeting.startTime 
-                ? `${meeting.startTime}` 
-                : 'Time not specified';
-            
-            // Get role display - default to Student if not specified or if creation was for Student
-            const roleOriginal = meeting.role ? meeting.role.toLowerCase() : '';
-            const roleDisplay = roleOriginal === 'student' ? 'Student' : 
-                               roleOriginal === 'staff' ? 'Staff' : 
-                               'Student'; // Default to Student if not specified
-            
-            return (
-              <Grid item xs={12} key={meeting.id || Math.random()}>
-                <Card sx={{ borderRadius: 0, mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
-                      {meeting.title || `Meeting on ${formattedDate}`}
-                    </Typography>
-                    
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-                      <Typography variant="body2" sx={{ 
-                        color: 'primary.main',
-                        bgcolor: '#e3f2fd',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1
-                      }}>
-                        {`Date: ${isValidDate ? formattedDate : 'Pending'}`}
-                      </Typography>
-                      
-                      <Typography variant="body2" sx={{ 
-                        color: 'success.main',
-                        bgcolor: '#e8f5e9',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1
-                      }}>
-                        {`Time: ${timeDisplay}`}
-                      </Typography>
-                      
-                      <Typography variant="body2" sx={{ 
-                        color: '#ff6d00',
-                        bgcolor: '#fff3e0',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1
-                      }}>
-                        {`Role: ${roleDisplay}`}
-                      </Typography>
-                      
-                      <Typography variant="body2" sx={{ 
-                        color: '#6a1b9a',
-                        bgcolor: '#f3e5f5',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1
-                      }}>
-                        {`Department: ${getDepartmentName(meeting.department || meeting.departmentId)}`}
-                      </Typography>
-                      
-                      {(roleDisplay === 'Student' || meeting.role?.toLowerCase() === 'student') && (
-                        <Typography variant="body2" sx={{ 
-                          color: '#00695c',
-                          bgcolor: '#e0f2f1',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Year: ${meeting.year || 'Not specified'}`}
-                        </Typography>
-                      )}
-                    </Box>
-                    
-                    {meetingCountdowns[meeting.id] ? (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#1A2137' }}>
-                          Time Remaining:
-                        </Typography>
-                        <Box sx={{ 
-                          display: 'flex',
-                          gap: 2,
-                          mt: 1,
-                          alignItems: 'center'
-                        }}>
-                          {/* Time countdown display */}
-                          <CountdownBox label="Days" value={meetingCountdowns[meeting.id]?.days || 0} />
-                          <CountdownBox label="Hours" value={meetingCountdowns[meeting.id]?.hours || 0} />
-                          <CountdownBox label="Minutes" value={meetingCountdowns[meeting.id]?.minutes || 0} />
-                          <CountdownBox label="Seconds" value={meetingCountdowns[meeting.id]?.seconds || 0} />
-                        </Box>
-                      </Box>
-                    ) : (
-                      <Typography variant="body2" sx={{ color: 'text.secondary', mt: 2 }}>
-                        This meeting has already started or has no valid date.
-                      </Typography>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-            );
-          })}
-        </Grid>
-      )}
-    </Paper>
   );
 
   return (
@@ -1995,11 +1981,11 @@ const AcademicDirectorDashboard = () => {
         
         <List sx={{ p: 0 }}>
           {tabs.map(tab => (
-            <ListItem
+              <ListItem
               key={tab.id}
               button 
               onClick={() => setActiveTab(tab.id)}
-              sx={{
+                sx={{
                 py: 2, 
                 pl: 3,
                 bgcolor: activeTab === tab.id ? '#2A3147' : 'transparent',
@@ -2008,11 +1994,11 @@ const AcademicDirectorDashboard = () => {
             >
               <ListItemIcon sx={{ color: '#FFFFFF', minWidth: 30 }}>
                 {tab.icon}
-              </ListItemIcon>
+                </ListItemIcon>
               <ListItemText primary={tab.label} sx={{ color: '#FFFFFF' }} />
-            </ListItem>
-          ))}
-        </List>
+              </ListItem>
+            ))}
+          </List>
         
         <Box sx={{ position: 'absolute', bottom: 0, width: '100%' }}>
           <ListItem 
@@ -2030,7 +2016,7 @@ const AcademicDirectorDashboard = () => {
             <ListItemText primary="Logout" sx={{ color: '#FFFFFF' }} />
           </ListItem>
         </Box>
-      </Box>
+        </Box>
         
         {/* Main content */}
       <Box 
@@ -2306,18 +2292,18 @@ const AcademicDirectorDashboard = () => {
                       <Typography variant="h6">Feedback Reports</Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                         Download complete feedback reports
-                      </Typography>
-                      <Button
-                        variant="contained"
-                        startIcon={<DownloadIcon />}
-                        onClick={handleDownloadReport}
+              </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<DownloadIcon />}
+                    onClick={handleDownloadReport}
                         sx={{ 
                           bgcolor: '#1A2137', 
                           '&:hover': { bgcolor: '#2A3147' }
                         }}
-                      >
+                  >
                         Download Report
-                      </Button>
+                  </Button>
                     </CardContent>
                   </Card>
                 </Grid>

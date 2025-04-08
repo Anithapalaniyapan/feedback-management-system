@@ -572,89 +572,87 @@ const StaffDashboard = () => {
   );
 
   // Render meeting schedule section
-  const renderMeetingSchedule = () => {
-    // Existing debug reload function
-    const handleDebugReload = () => {
-      loadMeetingsFromStorage();
-    };
+  const renderViewMeetingSchedule = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    // Filter displayed meetings by role to show only staff meetings
-    const filteredMeetings = {
-      pastMeetings: meetings.pastMeetings ? meetings.pastMeetings.filter(meeting => 
-        (meeting.role || '').toLowerCase().includes('staff')
-      ) : [],
-      currentMeetings: meetings.currentMeetings ? meetings.currentMeetings.filter(meeting => 
-        (meeting.role || '').toLowerCase().includes('staff')
-      ) : [],
-      futureMeetings: meetings.futureMeetings ? meetings.futureMeetings.filter(meeting => 
-        (meeting.role || '').toLowerCase().includes('staff')
-      ) : []
-    };
+    // Filter meetings to show only present and upcoming ones
+    const filteredMeetings = meetings.filter(meeting => {
+      const meetingDate = new Date(meeting.date || meeting.meetingDate);
+      return meetingDate >= today;
+    }).sort((a, b) => new Date(a.date || a.meetingDate) - new Date(b.date || b.meetingDate));
 
     return (
-      <Paper sx={{ p: 4, borderRadius: 0 }}>
-        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Meeting Schedule</Typography>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          View Meeting Schedule
+        </Typography>
         
-        {/* Past Meetings */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>Past Meetings</Typography>
-          {filteredMeetings.pastMeetings.length > 0 ? (
-            filteredMeetings.pastMeetings.map((meeting) => (
-              <Box key={meeting.id} sx={{ mb: 2 }}>
-                <Typography variant="subtitle1">{meeting.title}</Typography>
-                <Typography variant="body2">Date: {meeting.date}</Typography>
-                <Typography variant="body2">Time: {meeting.startTime} - {meeting.endTime}</Typography>
-              </Box>
-            ))
-          ) : (
-            <Typography variant="body2">No past meetings</Typography>
-          )}
-        </Box>
-        
-        {/* Current Meetings */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>Today's Meetings</Typography>
-          {filteredMeetings.currentMeetings.length > 0 ? (
-            filteredMeetings.currentMeetings.map((meeting) => (
-              <Box key={meeting.id} sx={{ mb: 2 }}>
-                <Typography variant="subtitle1">{meeting.title}</Typography>
-                <Typography variant="body2">Time: {meeting.startTime} - {meeting.endTime}</Typography>
-              </Box>
-            ))
-          ) : (
-            <Typography variant="body2">No meetings scheduled for today</Typography>
-          )}
-        </Box>
-        
-        {/* Future Meetings */}
-        <Box>
-          <Typography variant="h6" gutterBottom>Upcoming Meetings</Typography>
-          {filteredMeetings.futureMeetings.length > 0 ? (
-            filteredMeetings.futureMeetings.map((meeting) => (
-              <Box key={meeting.id} sx={{ mb: 2 }}>
-                <Typography variant="subtitle1">{meeting.title}</Typography>
-                <Typography variant="body2">Date: {meeting.date}</Typography>
-                <Typography variant="body2">Time: {meeting.startTime} - {meeting.endTime}</Typography>
-              </Box>
-            ))
-          ) : (
-            <Typography variant="body2">No upcoming meetings scheduled</Typography>
-          )}
-        </Box>
-        
-        {/* Debug reload button */}
-        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<RefreshIcon />}
-            onClick={handleDebugReload}
-            sx={{ fontSize: '0.7rem' }}
-          >
-            Reload Meetings
-          </Button>
-        </Box>
-      </Paper>
+        {filteredMeetings.length === 0 ? (
+          <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
+            No meetings scheduled.
+          </Typography>
+        ) : (
+          <Grid container spacing={3}>
+            {filteredMeetings.map((meeting) => {
+              const meetingDate = new Date(meeting.date || meeting.meetingDate);
+              const isToday = meetingDate.toDateString() === today.toDateString();
+              
+              return (
+                <Grid item xs={12} key={meeting.id}>
+                  <Card sx={{ borderRadius: 0, mb: 2 }}>
+                    <CardContent>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        {meeting.title}
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'primary.main',
+                          bgcolor: '#e3f2fd',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1
+                        }}>
+                          {`Date: ${meetingDate.toLocaleDateString()}`}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ 
+                          color: 'success.main',
+                          bgcolor: '#e8f5e9',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1
+                        }}>
+                          {`Time: ${meeting.startTime} - ${meeting.endTime}`}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ 
+                          color: '#6a1b9a',
+                          bgcolor: '#f3e5f5',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1
+                        }}>
+                          {`Department: ${meeting.department || 'Not specified'}`}
+                        </Typography>
+                      </Box>
+                      
+                      <Typography variant="body2" sx={{ 
+                        color: isToday ? 'success.main' : 'info.main',
+                        fontWeight: 'bold',
+                        mt: 2
+                      }}>
+                        {isToday ? 'Today\'s Meeting' : 'Upcoming Meeting'}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        )}
+      </Box>
     );
   };
 
@@ -980,210 +978,25 @@ const StaffDashboard = () => {
         return false;
       }
     };
-    
+
     return (
-      <Paper sx={{ p: 4, borderRadius: 0 }}>
-        <Typography variant="h5" align="center" gutterBottom>Meeting Timer</Typography>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          Meeting Timer
+        </Typography>
         
         {meetingDetails ? (
-          <>
-            <Typography variant="body1" align="center" sx={{ my: 2 }}>
-              Next Meeting: {meetingDetails.date} - {meetingDetails.time}
-            </Typography>
-            
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              mt: 2
-            }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h2" sx={{ fontWeight: 'normal' }}>
-                  {String(countdown.minutes).padStart(2, '0')}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0 }}>
-                  minutes
-                </Typography>
-              </Box>
-              
-              <Typography variant="h2" sx={{ mx: 2, fontWeight: 'normal' }}>:</Typography>
-              
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h2" sx={{ fontWeight: 'normal' }}>
-                  {String(countdown.seconds).padStart(2, '0')}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0 }}>
-                  seconds
-                </Typography>
-              </Box>
-            </Box>
-          </>
+          <Typography variant="body1">
+            {`Next meeting: ${meetingDetails.title} at ${meetingDetails.date} ${meetingDetails.time}`}
+          </Typography>
         ) : (
-          <Typography variant="body1" align="center" sx={{ my: 4 }}>
-            No upcoming meetings scheduled
+          <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
+            No upcoming meeting scheduled.
           </Typography>
         )}
-        
-        {/* Debug button to force reload from localStorage */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => {
-              try {
-                // Try staff-specific timer data first
-                const storedStaffTimer = localStorage.getItem('staffNextMeetingData');
-                if (storedStaffTimer) {
-                  const timerData = JSON.parse(storedStaffTimer);
-                  console.log('Staff Dashboard: Debug - Reloaded staff-specific timer data:', timerData);
-                  
-                  if (timerData.originalDate) {
-                    const now = new Date();
-                    const meetingDate = new Date(timerData.originalDate + 'T' + (timerData.time || '00:00'));
-                    const diffMs = Math.max(0, meetingDate - now);
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                    
-                    setCountdown({
-                      minutes: diffMins,
-                      seconds: diffSecs
-                    });
-                    
-                    // Update staff-specific timer data
-                    const updatedTimer = {
-                      ...timerData,
-                      minutesLeft: diffMins,
-                      secondsLeft: diffSecs
-                    };
-                    localStorage.setItem('staffNextMeetingData', JSON.stringify(updatedTimer));
-                    
-                    dispatch(showSnackbar({
-                      message: 'Staff timer recalculated from meeting date',
-                      severity: 'success'
-                    }));
-                    return;
-                  }
-                }
-                
-                // If no valid staff timer found, try to rebuild it from meetings
-                if (rebuildStaffTimerFromMeetings()) {
-                  // If rebuild was successful, don't continue
-                  return;
-                }
-                
-                // Fallback to generic timer data if all else fails
-                const storedGenericTimer = localStorage.getItem('nextMeetingData');
-                if (storedGenericTimer) {
-                  const timerData = JSON.parse(storedGenericTimer);
-                  console.log('Staff Dashboard: Debug - Checking generic timer data:', timerData);
-                  
-                  if (timerData.role?.toLowerCase() === 'staff') {
-                    if (timerData.originalDate) {
-                      const now = new Date();
-                      const meetingDate = new Date(timerData.originalDate + 'T' + (timerData.time || '00:00'));
-                      const diffMs = Math.max(0, meetingDate - now);
-                      const diffMins = Math.floor(diffMs / 60000);
-                      const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                      
-                      setCountdown({
-                        minutes: diffMins,
-                        seconds: diffSecs
-                      });
-                      
-                      // Create staff-specific timer data from generic data
-                      const updatedTimer = {
-                        ...timerData,
-                        minutesLeft: diffMins,
-                        secondsLeft: diffSecs
-                      };
-                      localStorage.setItem('staffNextMeetingData', JSON.stringify(updatedTimer));
-                      
-                      dispatch(showSnackbar({
-                        message: 'Timer recalculated from generic staff meeting data',
-                        severity: 'success'
-                      }));
-                      return;
-                    }
-                  } else {
-                    dispatch(showSnackbar({
-                      message: 'No staff meetings found. Ask the Academic Director to schedule staff meetings.',
-                      severity: 'warning'
-                    }));
-                    return;
-                  }
-                }
-                
-                dispatch(showSnackbar({
-                  message: 'No staff meeting timer data found. Please ask the Academic Director to schedule meetings for staff.',
-                  severity: 'warning'
-                }));
-              } catch (error) {
-                console.error('Staff Dashboard: Error reloading timer:', error);
-                dispatch(showSnackbar({
-                  message: 'Error reloading timer data',
-                  severity: 'error'
-                }));
-              }
-            }}
-            sx={{ fontSize: '0.7rem' }}
-          >
-            Debug: Reload Staff Timer
-          </Button>
-        </Box>
-      </Paper>
+      </Box>
     );
   };
-
-  // Render reports section
-  const renderReports = () => (
-    <Paper sx={{ p: 4, borderRadius: 0 }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Reports</Typography>
-      
-      <Grid container spacing={2}>
-        <Grid item xs={12}>
-          <Card sx={{ p: 2, borderRadius: 0 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Feedback Summary Report</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Download comprehensive feedback report for all meetings
-              </Typography>
-              <Button 
-                variant="contained" 
-                startIcon={<DownloadIcon />}
-                sx={{ 
-                  bgcolor: '#1A2137', 
-                  '&:hover': { bgcolor: '#2A3147' }
-                }}
-              >
-                Download Report
-              </Button>
-            </CardContent>
-          </Card>
-          </Grid>
-        
-        <Grid item xs={12}>
-          <Card sx={{ p: 2, borderRadius: 0 }}>
-              <CardContent>
-              <Typography variant="h6" gutterBottom>Meeting Minutes Report</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Access all meeting minutes in one document
-                </Typography>
-                <Button
-                  variant="contained"
-                  startIcon={<DownloadIcon />}
-                sx={{ 
-                  bgcolor: '#1A2137', 
-                  '&:hover': { bgcolor: '#2A3147' }
-                }}
-              >
-                Download Minutes
-                </Button>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-    </Paper>
-  );
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -1257,42 +1070,10 @@ const StaffDashboard = () => {
         }}
       >
         <Container maxWidth="lg">
-          {/* Profile Section */}
-          {activeSection === 'profile' && (
-            <Box>
-              {renderProfile()}
-              <Box sx={{ mt: 3 }}>
-                {renderMeetingTimer()}
-              </Box>
-            </Box>
-          )}
-
-          {/* View Meetings Section */}
-          {activeSection === 'view-meetings' && (
-            <Box>
-              {renderMeetingSchedule()}
-              <Box sx={{ mt: 3 }}>
-                {renderMeetingTimer()}
-              </Box>
-            </Box>
-          )}
-
-          {/* View Questions Section */}
-          {activeSection === 'view-questions' && (
-            <Box>
-              {renderFeedback()}
-              <Box sx={{ mt: 3 }}>
-                {renderMeetingTimer()}
-              </Box>
-            </Box>
-          )}
-
-          {/* Analytics Section */}
-          {activeSection === 'analytics' && (
-            <Box>
-              {renderReports()}
-            </Box>
-          )}
+          {activeSection === 'profile' && renderProfile()}
+          {activeSection === 'view-meetings' && renderViewMeetingSchedule()}
+          {activeSection === 'view-questions' && renderFeedback()}
+          {activeSection === 'meeting-timer' && renderMeetingTimer()}
         </Container>
       </Box>
 

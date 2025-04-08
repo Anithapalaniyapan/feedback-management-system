@@ -18,7 +18,9 @@ import {
   Divider,
   Snackbar,
   Alert,
-  Container
+  Container,
+  Card,
+  CardContent
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import FeedbackIcon from '@mui/icons-material/Feedback';
@@ -660,593 +662,87 @@ const StudentDashboard = () => {
   );
 
   // Render meeting schedule section
-  const renderMeetingSchedule = () => {
-    // Debug log to show what meetings are available
-    console.log('Rendering meetings with data:', meetings);
-    
-    // Create date categorizations
+  const renderViewMeetingSchedule = () => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
-    // Sort meetings into categories
-    const pastMeetings = [];
-    const todayMeetings = [];
-    const upcomingMeetings = [];
-    
-    // Safely check if meetings exists and is an array
-    if (Array.isArray(meetings) && meetings.length > 0) {
-      meetings.forEach(meeting => {
-        try {
-          console.log('Processing meeting:', meeting);
-          
-          if (!meeting) {
-            console.warn('Found null/undefined meeting in array');
-            return; // Skip this meeting
-          }
-          
-          // Log details of each meeting for debugging
-          console.log(`Meeting details: 
-            title: ${meeting.title || 'undefined'}, 
-            role: ${meeting.role || 'undefined'}, 
-            date: ${meeting.date || 'undefined'}, 
-            meetingDate: ${meeting.meetingDate || 'undefined'}, 
-            department: ${meeting.department || 'undefined'}`);
-          
-          // Handle both date formats
-          const dateStr = meeting.date || meeting.meetingDate || '';
-          if (!dateStr) {
-            console.warn('Meeting has no date information:', meeting);
-            return; // Skip this meeting
-          }
-          
-          const meetingDate = new Date(dateStr);
-          if (isNaN(meetingDate.getTime())) {
-            console.warn('Invalid meeting date:', dateStr);
-            return; // Skip this meeting
-          }
-          
-          meetingDate.setHours(0, 0, 0, 0);
-          
-          if (meetingDate < today) {
-            pastMeetings.push(meeting);
-          } else if (meetingDate.getTime() === today.getTime()) {
-            todayMeetings.push(meeting);
-          } else {
-            upcomingMeetings.push(meeting);
-          }
-        } catch (error) {
-          console.error('Error processing meeting:', error, meeting);
-        }
-      });
-    } else {
-      console.warn('Meetings is not an array or is empty:', meetings);
-    }
-    
-    // Helper function to format date for display
-    const formatDate = (dateStr) => {
-      if (!dateStr) return 'No date';
-      
-      try {
-        const date = new Date(dateStr);
-        if (isNaN(date.getTime())) {
-          return 'Invalid date';
-        }
-        return date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-      } catch (e) {
-        console.error('Error formatting date:', e, dateStr);
-        return 'Error formatting date';
-      }
-    };
-    
-    // Directly check localStorage for meetings (debugging)
-    const checkLocalStorage = () => {
-      try {
-        const storedMeetings = localStorage.getItem('submittedMeetings');
-        console.log('Checking localStorage directly:', storedMeetings);
-        
-        if (storedMeetings) {
-          try {
-            const parsedMeetings = JSON.parse(storedMeetings);
-            console.log('Successfully parsed meetings from localStorage:', parsedMeetings);
-            
-            // Log the first meeting details if available
-            if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-              const firstMeeting = parsedMeetings[0];
-              console.log('First meeting from localStorage:', {
-                title: firstMeeting.title,
-                role: firstMeeting.role,
-                date: firstMeeting.date,
-                meetingDate: firstMeeting.meetingDate,
-                startTime: firstMeeting.startTime,
-                endTime: firstMeeting.endTime,
-                department: firstMeeting.department,
-                departmentId: firstMeeting.departmentId,
-                year: firstMeeting.year
-              });
-            }
-            
-            if (Array.isArray(parsedMeetings)) {
-              setMeetings(parsedMeetings);
-              setSnackbar({
-                open: true,
-                message: 'Meetings loaded from localStorage',
-                severity: 'success'
-              });
-              return true;
-            } else {
-              console.error('Parsed meetings is not an array:', parsedMeetings);
-              setSnackbar({
-                open: true,
-                message: 'Error: Stored meetings data is invalid',
-                severity: 'error'
-              });
-            }
-          } catch (error) {
-            console.error('Error parsing localStorage meetings:', error);
-            setSnackbar({
-              open: true,
-              message: 'Error parsing stored meetings',
-              severity: 'error'
-            });
-          }
-        } else {
-          setSnackbar({
-            open: true,
-            message: 'No meetings found in localStorage',
-            severity: 'info'
-          });
-        }
-      } catch (error) {
-        console.error('Error accessing localStorage:', error);
-        setSnackbar({
-          open: true,
-          message: 'Error accessing localStorage',
-          severity: 'error'
-        });
-      }
-      return false;
-    };
-    
-    // Render a single meeting item with error handling
-    const renderMeetingItem = (meeting, index) => {
-      try {
-        if (!meeting) return null;
-        
-        return (
-          <Box key={meeting.id || index} sx={{ bgcolor: '#f8f9fa', p: 2, borderRadius: 0, mt: index > 0 ? 1 : 0 }}>
-            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-              {formatDate(meeting.date || meeting.meetingDate)}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {meeting.startTime || 'Time not specified'}
-            </Typography>
-            {meeting.title && (
-              <Typography variant="body2" color="text.primary" sx={{ mt: 1 }}>
-                {meeting.title}
-              </Typography>
-            )}
-          </Box>
-        );
-      } catch (error) {
-        console.error('Error rendering meeting item:', error, meeting);
-        return (
-          <Box key={`error-${index}`} sx={{ bgcolor: '#fff0f0', p: 2, borderRadius: 0, mt: index > 0 ? 1 : 0 }}>
-            <Typography variant="body2" color="error">Error displaying meeting</Typography>
-          </Box>
-        );
-      }
-    };
-    
-    return (
-      <Paper sx={{ p: 4, borderRadius: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" gutterBottom sx={{ mb: 0 }}>Meeting Schedule</Typography>
-          <Button 
-            variant="outlined" 
-            size="small"
-            onClick={loadMeetingsFromStorage}
-            startIcon={<RefreshIcon />}
-          >
-            Refresh Meetings
-          </Button>
-        </Box>
-        
-        {/* Past meetings */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>Past Meeting Schedule</Typography>
-          
-          {pastMeetings.length > 0 ? (
-            pastMeetings.map((meeting, index) => renderMeetingItem(meeting, index))
-          ) : (
-            <Typography variant="body2" sx={{ fontStyle: 'italic', p: 2 }}>No past meetings available</Typography>
-          )}
-        </Box>
-        
-        {/* Today's meetings */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>Present Meeting Schedule</Typography>
-          
-          {todayMeetings.length > 0 ? (
-            todayMeetings.map((meeting, index) => renderMeetingItem(meeting, index))
-          ) : (
-            <Typography variant="body2" sx={{ fontStyle: 'italic', p: 2 }}>No meetings scheduled for today</Typography>
-          )}
-        </Box>
-        
-        {/* Upcoming meetings */}
-        <Box>
-          <Typography variant="h6" gutterBottom>Upcoming Meeting Schedule</Typography>
-          
-          {upcomingMeetings.length > 0 ? (
-            upcomingMeetings.map((meeting, index) => renderMeetingItem(meeting, index))
-          ) : (
-            <Typography variant="body2" sx={{ fontStyle: 'italic', p: 2 }}>No upcoming meetings scheduled</Typography>
-          )}
-        </Box>
-      </Paper>
-    );
-  };
+    // Filter meetings to show only present and upcoming ones
+    const filteredMeetings = meetings.filter(meeting => {
+      const meetingDate = new Date(meeting.date || meeting.meetingDate);
+      return meetingDate >= today;
+    }).sort((a, b) => new Date(a.date || a.meetingDate) - new Date(b.date || b.meetingDate));
 
-  // Render meeting timer section
-  const renderMeetingTimer = () => {
-    // Add a countdown timer effect
-    const [countdown, setCountdown] = useState({
-      minutes: nextMeeting?.minutesLeft || 0,
-      seconds: nextMeeting?.secondsLeft || 0
-    });
-    
-    // Initialize countdown from localStorage when component mounts
-    useEffect(() => {
-      try {
-        // First try to get student-specific timer data
-        const storedStudentTimer = localStorage.getItem('studentNextMeetingData');
-        if (storedStudentTimer) {
-          const timerData = JSON.parse(storedStudentTimer);
-          console.log('Student Dashboard: Retrieved student-specific timer data:', timerData);
-          
-          if (timerData.minutesLeft !== undefined && timerData.secondsLeft !== undefined) {
-            // Recalculate time remaining if we have original date
-            if (timerData.originalDate) {
-              const now = new Date();
-              const meetingDate = new Date(timerData.originalDate + 'T' + (timerData.time || '00:00'));
-              
-              if (!isNaN(meetingDate.getTime())) {
-                const diffMs = Math.max(0, meetingDate - now);
-                const diffMins = Math.floor(diffMs / 60000);
-                const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                
-                setCountdown({
-                  minutes: diffMins,
-                  seconds: diffSecs
-                });
-                
-                // Update localStorage with fresh values
-                const updatedTimer = {
-                  ...timerData,
-                  minutesLeft: diffMins,
-                  secondsLeft: diffSecs
-                };
-                localStorage.setItem('studentNextMeetingData', JSON.stringify(updatedTimer));
-                
-                console.log('Student Dashboard: Updated countdown timer: ', diffMins, 'minutes,', diffSecs, 'seconds');
-                return;
-              }
-            }
-            
-            // Fallback to stored values if we can't recalculate
-            setCountdown({
-              minutes: timerData.minutesLeft,
-              seconds: timerData.secondsLeft
-            });
-            return;
-          }
-        }
-        
-        // Fallback to generic timer data if it has student role or no role specified
-        const storedTimer = localStorage.getItem('nextMeetingData');
-        if (storedTimer) {
-          const timerData = JSON.parse(storedTimer);
-          
-          // Use this data if it's for student role or has no role specified
-          if (!timerData.role || timerData.role?.toLowerCase() === 'student') {
-            console.log('Student Dashboard: Using generic timer data for student role');
-            
-            if (timerData.minutesLeft !== undefined && timerData.secondsLeft !== undefined) {
-              // Recalculate time remaining if we have original date
-              if (timerData.originalDate) {
-                const now = new Date();
-                const meetingDate = new Date(timerData.originalDate + 'T' + (timerData.time || '00:00'));
-                
-                if (!isNaN(meetingDate.getTime())) {
-                  const diffMs = Math.max(0, meetingDate - now);
-                  const diffMins = Math.floor(diffMs / 60000);
-                  const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                  
-                  setCountdown({
-                    minutes: diffMins,
-                    seconds: diffSecs
-                  });
-                  
-                  // Create student-specific timer data
-                  const updatedTimer = {
-                    ...timerData,
-                    minutesLeft: diffMins,
-                    secondsLeft: diffSecs,
-                    role: 'student'
-                  };
-                  localStorage.setItem('studentNextMeetingData', JSON.stringify(updatedTimer));
-                  
-                  console.log('Student Dashboard: Created student timer from generic data');
-                  return;
-                }
-              }
-              
-              // Fallback to stored values if we can't recalculate
-              setCountdown({
-                minutes: timerData.minutesLeft,
-                seconds: timerData.secondsLeft
-              });
-            }
-          } else {
-            console.log('Student Dashboard: Generic timer is not for student role:', timerData.role);
-          }
-        }
-      } catch (error) {
-        console.error('Student Dashboard: Error initializing countdown from localStorage:', error);
-      }
-    }, []);
-    
-    // Keep the timer running
-    useEffect(() => {
-      if (!countdown || (countdown.minutes === 0 && countdown.seconds === 0)) {
-        return; // Don't start timer if no valid countdown
-      }
-      
-      console.log('Student Dashboard: Starting countdown timer with values:', countdown);
-      
-      // Set up the interval to update every second
-      const timer = setInterval(() => {
-        setCountdown(prev => {
-          // Calculate new values
-          let newSeconds = prev.seconds - 1;
-          let newMinutes = prev.minutes;
-          
-          if (newSeconds < 0) {
-            newSeconds = 59;
-            newMinutes = newMinutes - 1;
-          }
-          
-          // Don't go below zero
-          if (newMinutes < 0) {
-            newMinutes = 0;
-            newSeconds = 0;
-            clearInterval(timer);
-          }
-          
-          // Update localStorage with current values
-          try {
-            // Update student-specific timer first
-            const storedStudentTimer = localStorage.getItem('studentNextMeetingData');
-            if (storedStudentTimer) {
-              const timerData = JSON.parse(storedStudentTimer);
-              const updatedTimer = {
-                ...timerData,
-                minutesLeft: newMinutes,
-                secondsLeft: newSeconds
-              };
-              localStorage.setItem('studentNextMeetingData', JSON.stringify(updatedTimer));
-            }
-            
-            // For backwards compatibility, also update generic timer if it's for student
-            const storedTimer = localStorage.getItem('nextMeetingData');
-            if (storedTimer) {
-              const timerData = JSON.parse(storedTimer);
-              if (!timerData.role || timerData.role?.toLowerCase() === 'student') {
-                const updatedTimer = {
-                  ...timerData,
-                  minutesLeft: newMinutes,
-                  secondsLeft: newSeconds
-                };
-                localStorage.setItem('nextMeetingData', JSON.stringify(updatedTimer));
-              }
-            }
-          } catch (error) {
-            console.error('Student Dashboard: Error updating timer in localStorage:', error);
-          }
-          
-          return { minutes: newMinutes, seconds: newSeconds };
-        });
-      }, 1000);
-      
-      // Clean up when component unmounts
-      return () => {
-        clearInterval(timer);
-      };
-    }, [countdown]);
-    
-    // Get meeting details from localStorage if not available from Redux
-    const meetingDetails = React.useMemo(() => {
-      if (nextMeeting?.date && nextMeeting?.time) {
-        return nextMeeting;
-      }
-      
-      try {
-        // First try student-specific timer data
-        const storedStudentTimer = localStorage.getItem('studentNextMeetingData');
-        if (storedStudentTimer) {
-          const timerData = JSON.parse(storedStudentTimer);
-          console.log('Student Dashboard: Using student-specific meeting details');
-          if (timerData.date && timerData.time) {
-            return timerData;
-          }
-        }
-        
-        // Fallback to generic timer data if appropriate
-        const storedTimer = localStorage.getItem('nextMeetingData');
-        if (storedTimer) {
-          const timerData = JSON.parse(storedTimer);
-          if ((!timerData.role || timerData.role?.toLowerCase() === 'student') && timerData.date && timerData.time) {
-            console.log('Student Dashboard: Using generic meeting data for student role');
-            return timerData;
-          }
-        }
-      } catch (e) {
-        console.error('Student Dashboard: Error getting meeting details from localStorage:', e);
-      }
-      
-      return null;
-    }, [nextMeeting]);
-    
     return (
-      <Paper sx={{ p: 4, borderRadius: 0 }}>
-        <Typography variant="h5" align="center" gutterBottom>Meeting Timer</Typography>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>
+          View Meeting Schedule
+        </Typography>
         
-        {meetingDetails ? (
-          <>
-            <Typography variant="body1" align="center" sx={{ my: 2 }}>
-              Next Meeting: {meetingDetails.date} - {meetingDetails.time}
-            </Typography>
-            
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center',
-              mt: 2
-            }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h2" sx={{ fontWeight: 'normal' }}>
-                  {String(countdown.minutes).padStart(2, '0')}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0 }}>
-                  minutes
-                </Typography>
-              </Box>
-              
-              <Typography variant="h2" sx={{ mx: 2, fontWeight: 'normal' }}>:</Typography>
-              
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h2" sx={{ fontWeight: 'normal' }}>
-                  {String(countdown.seconds).padStart(2, '0')}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0 }}>
-                  seconds
-                </Typography>
-              </Box>
-            </Box>
-          </>
-        ) : (
-          <Typography variant="body1" align="center" sx={{ my: 4 }}>
-            No upcoming meetings scheduled
+        {filteredMeetings.length === 0 ? (
+          <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
+            No meetings scheduled.
           </Typography>
+        ) : (
+          <Grid container spacing={3}>
+            {filteredMeetings.map((meeting) => {
+              const meetingDate = new Date(meeting.date || meeting.meetingDate);
+              const isToday = meetingDate.toDateString() === today.toDateString();
+              
+              return (
+                <Grid item xs={12} key={meeting.id}>
+                  <Card sx={{ borderRadius: 0, mb: 2 }}>
+                    <CardContent>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        {meeting.title}
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'primary.main',
+                          bgcolor: '#e3f2fd',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1
+                        }}>
+                          {`Date: ${meetingDate.toLocaleDateString()}`}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ 
+                          color: 'success.main',
+                          bgcolor: '#e8f5e9',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1
+                        }}>
+                          {`Time: ${meeting.startTime} - ${meeting.endTime}`}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ 
+                          color: '#6a1b9a',
+                          bgcolor: '#f3e5f5',
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 1
+                        }}>
+                          {`Department: ${meeting.department || 'Not specified'}`}
+                        </Typography>
+                      </Box>
+                      
+                      <Typography variant="body2" sx={{ 
+                        color: isToday ? 'success.main' : 'info.main',
+                        fontWeight: 'bold',
+                        mt: 2
+                      }}>
+                        {isToday ? 'Today\'s Meeting' : 'Upcoming Meeting'}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
         )}
-        
-        {/* Debug button to force reload from localStorage */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => {
-              try {
-                // Try student-specific timer data first
-                const storedStudentTimer = localStorage.getItem('studentNextMeetingData');
-                if (storedStudentTimer) {
-                  const timerData = JSON.parse(storedStudentTimer);
-                  console.log('Student Dashboard: Debug - Reloaded student timer data:', timerData);
-                  
-                  if (timerData.originalDate) {
-                    const now = new Date();
-                    const meetingDate = new Date(timerData.originalDate + 'T' + (timerData.time || '00:00'));
-                    const diffMs = Math.max(0, meetingDate - now);
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                    
-                    setCountdown({
-                      minutes: diffMins,
-                      seconds: diffSecs
-                    });
-                    
-                    // Update student-specific timer data
-                    const updatedTimer = {
-                      ...timerData,
-                      minutesLeft: diffMins,
-                      secondsLeft: diffSecs
-                    };
-                    localStorage.setItem('studentNextMeetingData', JSON.stringify(updatedTimer));
-                    
-                    setSnackbar({
-                      open: true,
-                      message: 'Student timer recalculated from meeting date',
-                      severity: 'success'
-                    });
-                    return;
-                  }
-                }
-                
-                // Fallback to generic timer data
-                const storedTimer = localStorage.getItem('nextMeetingData');
-                if (storedTimer) {
-                  const timerData = JSON.parse(storedTimer);
-                  console.log('Student Dashboard: Debug - Checking generic timer data:', timerData);
-                  
-                  if (!timerData.role || timerData.role?.toLowerCase() === 'student') {
-                    if (timerData.originalDate) {
-                      const now = new Date();
-                      const meetingDate = new Date(timerData.originalDate + 'T' + (timerData.time || '00:00'));
-                      const diffMs = Math.max(0, meetingDate - now);
-                      const diffMins = Math.floor(diffMs / 60000);
-                      const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                      
-                      setCountdown({
-                        minutes: diffMins,
-                        seconds: diffSecs
-                      });
-                      
-                      // Create student-specific timer data from generic
-                      const updatedTimer = {
-                        ...timerData,
-                        minutesLeft: diffMins,
-                        secondsLeft: diffSecs,
-                        role: 'student'
-                      };
-                      localStorage.setItem('studentNextMeetingData', JSON.stringify(updatedTimer));
-                      
-                      setSnackbar({
-                        open: true,
-                        message: 'Timer recalculated from generic student meeting data',
-                        severity: 'success'
-                      });
-                      return;
-                    }
-                  } else {
-                    setSnackbar({
-                      open: true,
-                      message: 'No student meeting timer found - generic timer is for a different role',
-                      severity: 'warning'
-                    });
-                    return;
-                  }
-                }
-                
-                setSnackbar({
-                  open: true,
-                  message: 'No student meeting timer data found',
-                  severity: 'warning'
-                });
-              } catch (error) {
-                console.error('Student Dashboard: Error reloading timer:', error);
-                setSnackbar({
-                  open: true,
-                  message: 'Error reloading timer data',
-                  severity: 'error'
-                });
-              }
-            }}
-            sx={{ fontSize: '0.7rem' }}
-          >
-            Debug: Reload Student Timer
-          </Button>
-        </Box>
-      </Paper>
+      </Box>
     );
   };
 
@@ -1360,12 +856,7 @@ const StudentDashboard = () => {
         <Box sx={{ width: '1010px', mt: 2, mb: 2 }}>
           {activeSection === 'profile' && renderProfile()}
           {activeSection === 'feedback' && renderFeedback()}
-          {activeSection === 'meeting-schedule' && renderMeetingSchedule()}
-          
-          {/* Meeting Timer shown on all views now */}
-          <Box sx={{ mt: 3 }}>
-            {renderMeetingTimer()}
-          </Box>
+          {activeSection === 'meeting-schedule' && renderViewMeetingSchedule()}
         </Box>
       </Box>
 

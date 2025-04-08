@@ -7,10 +7,15 @@ const Feedback = db.feedback;
 // Add attendees to a meeting
 exports.addAttendees = async (req, res) => {
   try {
-    const { meetingId, userIds } = req.body;
+    const { meetingId, userIds, role } = req.body;
     
-    if (!meetingId || !userIds || !Array.isArray(userIds)) {
-      return res.status(400).send({ message: 'Meeting ID and array of user IDs are required' });
+    if (!meetingId || !userIds || !Array.isArray(userIds) || !role) {
+      return res.status(400).send({ message: 'Meeting ID, role, and array of user IDs are required' });
+    }
+
+    // Validate role
+    if (!['student', 'staff'].includes(role.toLowerCase())) {
+      return res.status(400).send({ message: 'Invalid role. Must be either "student" or "staff"' });
     }
     
     // Check if meeting exists
@@ -37,6 +42,7 @@ exports.addAttendees = async (req, res) => {
         const attendee = await MeetingAttendee.create({
           meetingId,
           userId,
+          role: role.toLowerCase(),
           attended: false,
           feedbackSubmitted: false
         });
@@ -140,24 +146,19 @@ exports.getUserMeetings = async (req, res) => {
       const meetingDate = new Date(meeting.meetingDate);
       const meetingDateOnly = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate());
       
+      const meetingInfo = {
+        meeting,
+        attended: attendance.attended,
+        feedbackSubmitted: attendance.feedbackSubmitted,
+        role: attendance.role
+      };
+      
       if (meetingDateOnly < today) {
-        pastMeetings.push({
-          meeting,
-          attended: attendance.attended,
-          feedbackSubmitted: attendance.feedbackSubmitted
-        });
+        pastMeetings.push(meetingInfo);
       } else if (meetingDateOnly.getTime() === today.getTime()) {
-        todayMeetings.push({
-          meeting,
-          attended: attendance.attended,
-          feedbackSubmitted: attendance.feedbackSubmitted
-        });
+        todayMeetings.push(meetingInfo);
       } else {
-        upcomingMeetings.push({
-          meeting,
-          attended: attendance.attended,
-          feedbackSubmitted: attendance.feedbackSubmitted
-        });
+        upcomingMeetings.push(meetingInfo);
       }
     });
     

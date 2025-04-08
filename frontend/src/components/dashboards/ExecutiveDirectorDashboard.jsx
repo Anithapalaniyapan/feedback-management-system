@@ -129,18 +129,42 @@ const ExecutiveDirectorDashboard = () => {
     const fetchMeetings = async () => {
       setLoading(true);
       try {
-        const response = await axios.get('http://localhost:8080/api/meetings', {
-          headers: {
-            'x-access-token': localStorage.getItem('token')
+        const token = localStorage.getItem('token');
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+
+        // Try to fetch from API first
+        try {
+          const response = await axios.get('http://localhost:8080/api/meetings', {
+            headers: {
+              'x-access-token': token
+            }
+          });
+          
+          if (response.data && Array.isArray(response.data)) {
+            // Store the meetings in localStorage for offline access
+            localStorage.setItem('meetings', JSON.stringify(response.data));
+            setMeetings(response.data);
           }
-        });
-        setMeetings(response.data);
+        } catch (apiError) {
+          console.error('API fetch failed, trying localStorage:', apiError);
+          
+          // If API fails, try to load from localStorage
+          const storedMeetings = localStorage.getItem('meetings');
+          if (storedMeetings) {
+            const parsedMeetings = JSON.parse(storedMeetings);
+            if (Array.isArray(parsedMeetings)) {
+              setMeetings(parsedMeetings);
+            }
+          }
+        }
       } catch (error) {
         console.error('Error in fetchMeetings:', error);
         setError(error.message);
         setSnackbar({
           open: true,
-          message: error.response?.data?.message || 'Failed to load meetings. Please try again later.',
+          message: error.message || 'Failed to load meetings. Please try again later.',
           severity: 'error'
         });
       } finally {
@@ -496,83 +520,58 @@ const ExecutiveDirectorDashboard = () => {
   const renderMeetingCard = (meeting) => {
     // Extract date from either date or meetingDate property
     const dateValue = meeting.date || meeting.meetingDate;
+    const meetingDate = new Date(dateValue);
+    const formattedDate = meetingDate.toLocaleDateString();
     
-    // Ensure we have valid date for display
-    const meetingDateObj = dateValue ? new Date(`${dateValue}T${meeting.startTime || '00:00'}`) : null;
-    const isValidDate = meetingDateObj && !isNaN(meetingDateObj.getTime());
-    const formattedDate = isValidDate 
-      ? meetingDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-      : 'Pending';
+    // Preserve original role and format display
+    const originalRole = meeting.role || '';
+    const roleDisplay = originalRole.toLowerCase().trim() === 'student' ? 'Student' : 
+                       originalRole.toLowerCase().trim() === 'staff' ? 'Staff' : 
+                       originalRole;
     
-    // Get role display (default to Student if not specified or creation was for student)
-    const roleOriginal = meeting.role ? meeting.role.toLowerCase() : '';
-    const roleDisplay = roleOriginal === 'student' ? 'Student' : 
-                        roleOriginal === 'staff' ? 'Staff' : 'Student';
-    
-    // Format department name
+    // Get department name
     const departmentName = getDepartmentName(meeting.department || meeting.departmentId);
     
     return (
-      <Grid item xs={12} key={meeting.id || Math.random()}>
-        <Card sx={{ mb: 3, borderRadius: 1, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              {meeting.title}
-            </Typography>
+      <Card sx={{ mb: 3, borderRadius: 1, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            {meeting.title}
+          </Typography>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1">
+                <strong>Date:</strong> {formattedDate}
+              </Typography>
+            </Grid>
             
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-              <Typography variant="body2" sx={{ 
-                color: 'primary.main',
-                bgcolor: '#e3f2fd',
-                px: 1.5,
-                py: 0.5,
-                borderRadius: 1
-              }}>
-                {`Date: ${formattedDate}`}
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1">
+                <strong>Time:</strong> {meeting.startTime} - {meeting.endTime}
               </Typography>
-              
-              <Typography variant="body2" sx={{ 
-                color: 'success.main',
-                bgcolor: '#e8f5e9',
-                px: 1.5,
-                py: 0.5,
-                borderRadius: 1
-              }}>
-                {`Time: ${meeting.startTime} - ${meeting.endTime}`}
-              </Typography>
-              
-              <Typography variant="body2" sx={{ 
-                color: '#ff6d00',
-                bgcolor: '#fff3e0',
-                px: 1.5,
-                py: 0.5,
-                borderRadius: 1
-              }}>
-                {`Role: ${roleDisplay}`}
-              </Typography>
-              
-              <Typography variant="body2" sx={{ 
-                color: '#6a1b9a',
-                bgcolor: '#f3e5f5',
-                px: 1.5,
-                py: 0.5,
-                borderRadius: 1
-              }}>
-                {`Department: ${departmentName}`}
-              </Typography>
-            </Box>
+            </Grid>
             
-            {meeting.feedback && meeting.feedback.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2">Feedback Overview:</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {`${meeting.feedback.length} responses received`}
-                </Typography>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      </Grid>
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1">
+                <strong>Role:</strong> {roleDisplay}
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1">
+                <strong>Department:</strong> {departmentName}
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1">
+                <strong>Status:</strong> Upcoming Meeting
+              </Typography>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
     );
   };
 
@@ -594,52 +593,6 @@ const ExecutiveDirectorDashboard = () => {
           {meetings.map((meeting) => renderMeetingCard(meeting))}
                 </Grid>
       )}
-      
-      {/* Debug button to load meetings from localStorage */}
-      <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-                  <Button
-          variant="outlined" 
-          size="small"
-          onClick={() => {
-            try {
-              const storedMeetings = localStorage.getItem('meetings');
-              if (storedMeetings) {
-                const parsedMeetings = JSON.parse(storedMeetings);
-                if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-                  setMeetings(parsedMeetings);
-                  setSnackbar({
-                    open: true,
-                    message: `Loaded ${parsedMeetings.length} meetings from localStorage`,
-                    severity: 'success'
-                  });
-                } else {
-                  setSnackbar({
-                    open: true,
-                    message: 'No valid meetings found in localStorage',
-                    severity: 'warning'
-                  });
-                }
-              } else {
-                setSnackbar({
-                  open: true,
-                  message: 'No meetings found in localStorage',
-                  severity: 'info'
-                });
-              }
-            } catch (error) {
-              console.error('Error loading meetings from localStorage:', error);
-              setSnackbar({
-                open: true,
-                message: 'Error loading meetings from localStorage',
-                severity: 'error'
-              });
-            }
-          }}
-          sx={{ fontSize: '0.7rem', mt: 2 }}
-        >
-          Debug: Load meetings from localStorage
-                  </Button>
-      </Box>
     </Paper>
   );
 
