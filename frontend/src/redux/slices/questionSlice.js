@@ -34,7 +34,7 @@ export const fetchAllQuestions = createAsyncThunk(
 // Async thunk for fetching questions by department and year
 export const fetchQuestionsByDeptAndYear = createAsyncThunk(
   'questions/fetchByDeptAndYear',
-  async ({ departmentId, year }, { getState, rejectWithValue }) => {
+  async ({ departmentId, year, role }, { getState, rejectWithValue }) => {
     try {
       const { auth } = getState();
       
@@ -42,7 +42,13 @@ export const fetchQuestionsByDeptAndYear = createAsyncThunk(
         return rejectWithValue('No authentication token found');
       }
       
-      const response = await axios.get(`http://localhost:8080/api/questions/department/${departmentId}/year/${year}`, {
+      // Build URL with query parameters
+      const url = new URL(`http://localhost:8080/api/questions/department/${departmentId}/year/${year}`);
+      if (role) {
+        url.searchParams.append('role', role);
+      }
+      
+      const response = await axios.get(url.toString(), {
         headers: {
           'x-access-token': auth.token
         }

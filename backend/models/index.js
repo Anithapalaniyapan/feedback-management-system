@@ -29,6 +29,7 @@ db.feedback = require('./feedback.model.js')(sequelize, Sequelize);
 db.meeting = require('./meeting.model.js')(sequelize, Sequelize);
 db.meetingMinutes = require('./meetingMinutes.model.js')(sequelize, Sequelize);
 db.meetingAttendee = require('./meetingAttendee.model.js')(sequelize, Sequelize);
+db.hodResponse = require('./hodResponse.model.js')(sequelize, Sequelize);
 
 // Define relationships
 
@@ -147,7 +148,35 @@ db.feedback.belongsTo(db.meeting, {
   as: 'meeting'
 });
 
+// HOD Response relationships
+db.question.hasOne(db.hodResponse, {
+  foreignKey: 'questionId',
+  as: 'hodResponse'
+});
+db.hodResponse.belongsTo(db.question, {
+  foreignKey: 'questionId',
+  as: 'question'
+});
+
+db.user.hasMany(db.hodResponse, {
+  foreignKey: 'hodId',
+  as: 'hodResponses'
+});
+db.hodResponse.belongsTo(db.user, {
+  foreignKey: 'hodId',
+  as: 'hod'
+});
+
+db.department.hasMany(db.hodResponse, {
+  foreignKey: 'departmentId',
+  as: 'hodResponses'
+});
+db.hodResponse.belongsTo(db.department, {
+  foreignKey: 'departmentId',
+  as: 'department'
+});
+
 // Pre-defined roles
-db.ROLES = ['student', 'staff', 'academic_director', 'executive_director'];
+db.ROLES = ['student', 'staff', 'academic_director', 'executive_director', 'hod'];
 
 module.exports = db;

@@ -18,7 +18,15 @@ import {
   Alert,
   Card,
   CardContent,
-  Container
+  Container,
+  TableContainer,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  Chip,
+  CircularProgress
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import FeedbackIcon from '@mui/icons-material/Feedback';
@@ -33,6 +41,7 @@ import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import API from '../../api/axiosConfig';
+import axios from 'axios';
 
 // Import Redux actions
 import { fetchUserProfile } from '../../redux/slices/userSlice';
@@ -46,6 +55,40 @@ import {
   hideSnackbar 
 } from '../../redux/slices/uiSlice';
 
+// Configure axios defaults and interceptors
+axios.defaults.baseURL = 'http://localhost:8080/api';
+
+// Add request interceptor for all axios requests
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers = {
+        ...config.headers,
+        'x-access-token': token,
+        'Content-Type': 'application/json'
+      };
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle auth errors
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      // Clear local storage and redirect to login
+      localStorage.clear();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 const StaffDashboard = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -55,9 +98,21 @@ const StaffDashboard = () => {
   const { profile } = useSelector(state => state.user);
   const { meetings } = useSelector(state => state.meetings);
   const { questions } = useSelector(state => state.questions);
-  const { ratings, loading: feedbackLoading, submitSuccess, error: feedbackError } = useSelector(state => state.feedback);
-  const { activeSection, snackbar } = useSelector(state => state.ui);
+  const { ratings: reduxRatings, loading: feedbackLoading, submitSuccess, error: feedbackError } = useSelector(state => state.feedback);
+  const { activeSection } = useSelector(state => state.ui);
   const { loading: meetingsLoading, error: meetingsError, nextMeeting } = useSelector(state => state.meetings);
+
+  // Local state
+  const [localRatings, setLocalRatings] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionsError, setQuestionsError] = useState('');
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+  const [localQuestions, setLocalQuestions] = useState([]);
 
   // Set initial active section
   useEffect(() => {
@@ -67,14 +122,25 @@ const StaffDashboard = () => {
   // Check authentication and role on component mount
   useEffect(() => {
     const checkAuthAndLoadData = async () => {
+      const token = localStorage.getItem('token');
       if (!token) {
         console.log('No token found, redirecting to login');
         navigate('/login');
         return;
       }
       
-      // Normalize and check role - be flexible with role format
-      const normalizedRole = userRole ? userRole.toLowerCase() : '';
+      try {
+        // Verify token by making a test request
+        const response = await axios.get('/users/profile');
+        if (!response.data) {
+          throw new Error('Invalid profile response');
+        }
+
+        // Update user data in localStorage
+        localStorage.setItem('userData', JSON.stringify(response.data));
+        
+        // Normalize and check role
+        const normalizedRole = response.data.roles?.[0]?.name?.toLowerCase() || '';
       const isStaffRole = 
         normalizedRole === 'staff' || 
         normalizedRole === 'faculty' || 
@@ -82,7 +148,7 @@ const StaffDashboard = () => {
         normalizedRole.includes('staff');
       
       if (!isStaffRole) {
-        console.log(`Invalid role for staff dashboard: ${userRole}`);
+          console.log(`Invalid role for staff dashboard: ${normalizedRole}`);
         dispatch(showSnackbar({
           message: 'You do not have permission to access this dashboard',
           severity: 'error'
@@ -93,49 +159,29 @@ const StaffDashboard = () => {
       
       console.log('Authentication successful for Staff Dashboard');
       
-      try {
-        // Fetch user profile
-        await dispatch(fetchUserProfile()).unwrap();
-        
-        // Make sure the userRole is stored in localStorage for meeting filtering
+        // Store role in localStorage
         localStorage.setItem('userRole', 'staff');
         
-        // Load meetings
-        await loadMeetingsFromStorage();
-        await dispatch(fetchMeetings());
+        // Fetch meetings
+        await fetchMeetingsDirectly();
         
-        // Debug localStorage for meetings
-        const storedMeetings = localStorage.getItem('meetings');
-        if (storedMeetings) {
-          try {
-            const parsedMeetings = JSON.parse(storedMeetings);
-            console.log('Staff Dashboard: Found meetings in localStorage:', parsedMeetings.length);
-            
-            // Check for staff meetings
-            const staffMeetings = parsedMeetings.filter(meeting => 
-              (meeting.role || '').toLowerCase() === 'staff'
-            );
-            console.log(`Staff Dashboard: Found ${staffMeetings.length} staff meetings out of ${parsedMeetings.length} total`);
-          } catch (error) {
-            console.error('Staff Dashboard: Error parsing localStorage meetings:', error);
-          }
-        } else {
-          console.log('Staff Dashboard: No meetings found in localStorage');
-        }
       } catch (error) {
-        console.error('Error initializing staff dashboard:', error);
-        // If Redux fails, try direct API call
-        await fetchUserProfileDirectly();
+        console.error('Authentication error:', error.response?.data || error.message);
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        navigate('/login');
       }
     };
 
     checkAuthAndLoadData();
-  }, [dispatch, navigate, token, userRole]);
+  }, [dispatch, navigate]);
 
   // Direct API call as fallback for profile loading
   const fetchUserProfileDirectly = async () => {
       try {
         const token = localStorage.getItem('token');
+        console.log('Token found:', token ? 'Yes' : 'No');
+        
         if (!token) {
         console.error('No token found for direct profile fetch');
           return;
@@ -210,45 +256,236 @@ const StaffDashboard = () => {
     }
   }, [dispatch, submitSuccess, feedbackError]);
 
-  // Fetch questions for a specific meeting
-  const handleFetchQuestions = (meetingId) => {
-    // Since we don't have a direct fetchQuestionsByMeeting function anymore,
-    // we'll use the meeting data to get department and year, then fetch questions
-    const meeting = meetings.pastMeetings.find(m => m.id === meetingId) || 
-                    meetings.currentMeetings.find(m => m.id === meetingId) || 
-                    meetings.futureMeetings.find(m => m.id === meetingId);
+  // Update fetchQuestions function
+  const fetchQuestions = async () => {
+    setQuestionsLoading(true);
+    setQuestionsError('');
     
-    if (meeting && meeting.departmentId) {
-      dispatch(fetchQuestionsByDeptAndYear({ 
-        departmentId: meeting.departmentId, 
-        year: meeting.year || new Date().getFullYear()
-      }));
-    } else {
-      // Fallback to fetching all questions if we can't determine department/year
-      dispatch(fetchAllQuestions());
+    console.log('Starting to fetch questions, current Redux questions state:', questions);
+    
+    try {
+      // Get user data from localStorage
+      const userData = JSON.parse(localStorage.getItem('userData')) || {};
+      console.log('Staff userData:', userData);
+
+      // Get department ID
+      const departmentId = userData.departmentId || 
+                          (userData.department?.id) || 
+                          (typeof userData.department === 'number' ? userData.department : null);
+
+      if (!departmentId) {
+        throw new Error('Department ID not found in your profile');
+      }
+
+      console.log('Fetching questions for department:', departmentId);
+
+      // Make the API call
+      const response = await axios.get(`http://localhost:8080/api/questions/department/${departmentId}`, {
+          params: {
+            role: 'staff'
+          },
+          headers: {
+            'x-access-token': localStorage.getItem('token')
+          }
+      });
+
+      console.log('Questions API Response:', response.data);
+
+      if (response.data && Array.isArray(response.data)) {
+        const staffQuestions = response.data.filter(question => {
+          const isStaffQuestion = 
+            question.role?.toLowerCase() === 'staff' ||
+            question.role?.toLowerCase() === 'both' ||
+            question.roleId === 2 ||
+            question.targetRole?.toLowerCase() === 'staff';
+          
+          return isStaffQuestion;
+        });
+
+        console.log('Filtered staff questions:', staffQuestions);
+
+        if (staffQuestions.length === 0) {
+          console.log('No staff questions found after filtering');
+          setQuestionsError('No questions available for staff in your department');
+          
+          // Update both Redux and local state
+          dispatch({
+            type: 'questions/setQuestions',
+            payload: []
+          });
+          setLocalQuestions([]);
+          return;
+        }
+
+        // Update both Redux and local state
+        dispatch({
+          type: 'questions/setQuestions',
+          payload: staffQuestions
+        });
+        setLocalQuestions(staffQuestions);
+        
+        // Initialize ratings state for new questions
+        const newRatings = {};
+        staffQuestions.forEach(question => {
+          newRatings[question.id] = 0;
+        });
+        setLocalRatings(newRatings);
+        setQuestionsError('');
+        
+        console.log('Questions loaded successfully, count:', staffQuestions.length);
+      } else {
+        console.error('Invalid response format:', response.data);
+        throw new Error('Invalid response format from server');
+      }
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      const errorMessage = error.response?.data?.message || 
+                          error.message || 
+                          'Failed to fetch questions. Please try again later.';
+      
+      console.log('Setting error message:', errorMessage);
+      setQuestionsError(errorMessage);
+      
+      // Clear questions in both Redux and local state
+      dispatch({
+        type: 'questions/setQuestions',
+        payload: []
+      });
+      setLocalQuestions([]);
+    } finally {
+      setQuestionsLoading(false);
+      // Log the final state after the operation
+      console.log('Questions fetch completed, Redux questions state:', questions);
+      console.log('Questions fetch completed, local questions state:', localQuestions);
     }
-    
-    dispatch(setActiveSection('feedback'));
   };
+
+  // Add useEffect to fetch questions when component mounts and activeSection changes
+  useEffect(() => {
+    if (activeSection === 'submit-feedback') {
+      console.log('Submit Feedback section active, fetching questions...');
+      fetchQuestions();
+    }
+  }, [activeSection]);
+
+  // Update the useEffect to monitor questions state changes
+  useEffect(() => {
+    // Log when questions state changes
+    console.log('Questions state changed in Redux:', questions);
+    console.log('Current local questions state:', localQuestions);
+    
+    // If we're in submit-feedback section but have no questions in either state, try to fetch them
+    if (activeSection === 'submit-feedback' && 
+        localQuestions.length === 0 && 
+        (!questions || questions.length === 0)) {
+      console.log('Active section is submit-feedback but no questions found in any state, fetching...');
+      fetchQuestions();
+    }
+  }, [questions, localQuestions, activeSection]);
+
+  // Add a check for department ID on mount
+  useEffect(() => {
+    // Check for department ID in user data
+    const checkDepartmentId = () => {
+      try {
+        const userData = JSON.parse(localStorage.getItem('userData')) || {};
+        console.log('Checking department ID in userData:', userData);
+        
+        const departmentId = userData.departmentId || 
+                            (userData.department?.id) || 
+                            (typeof userData.department === 'number' ? userData.department : null);
+        
+        if (!departmentId) {
+          console.error('Department ID not found in user data. Staff cannot fetch questions without department ID.');
+          setQuestionsError('Department ID not found in your profile. Please contact admin.');
+          
+          // Show error notification
+          setSnackbar({
+            open: true,
+            message: 'Department ID not found in your profile. Staff feedback requires a department assignment.',
+            severity: 'error'
+          });
+        } else {
+          console.log('Department ID found:', departmentId);
+        }
+      } catch (error) {
+        console.error('Error checking department ID:', error);
+      }
+    };
+    
+    checkDepartmentId();
+  }, []);
 
   const handleRatingChange = (questionId, value) => {
-    dispatch(setRating({ questionId, rating: value }));
+    setLocalRatings(prev => ({
+      ...prev,
+      [questionId]: value
+    }));
   };
 
-  const handleSubmitFeedback = () => {
-    // Check if all questions have ratings
-    const hasEmptyRatings = Object.keys(ratings).length < questions.length || 
-      Object.values(ratings).some(rating => rating === 0);
-    
-    if (hasEmptyRatings) {
-      dispatch(showSnackbar({
-        message: 'Please rate all questions before submitting',
-        severity: 'warning'
-      }));
-      return;
-    }
+  const handleSubmitFeedback = async () => {
+    try {
+      // Validate that all questions have ratings
+      const hasEmptyRatings = Object.values(localRatings).some(rating => rating === 0);
+      
+      if (hasEmptyRatings) {
+        setSnackbar({
+          open: true,
+          message: 'Please rate all questions before submitting',
+          severity: 'warning'
+        });
+        return;
+      }
+      
+      setLoading(true);
 
-    dispatch(submitFeedback());
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Process each question's rating and submit individually
+      for (const [questionId, rating] of Object.entries(localRatings)) {
+        if (rating > 0) {
+          // Using the correct API endpoint for feedback submission
+          await axios.post('http://localhost:8080/api/feedback/submit', {
+            questionId: parseInt(questionId),
+            rating: rating,
+            notes: '' // Optional notes field
+          }, {
+        headers: {
+              'x-access-token': token,
+              'Content-Type': 'application/json'
+        }
+      });
+          
+          console.log(`Feedback for question ${questionId} submitted successfully`);
+        }
+      }
+
+      setSnackbar({
+        open: true,
+        message: 'Feedback submitted successfully',
+        severity: 'success'
+      });
+
+      // Reset ratings
+      const resetRatings = {};
+      questions.forEach(q => {
+        resetRatings[q.id] = 0;
+      });
+      setLocalRatings(resetRatings);
+
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to submit feedback: ' + (error.response?.data?.message || 'Please try again.'),
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -260,58 +497,67 @@ const StaffDashboard = () => {
     dispatch(hideSnackbar());
   };
 
-  // Add dedicated function to load meetings from localStorage
-  const loadMeetingsFromStorage = () => {
+  // Add a direct API call function to fetch meetings
+  const fetchMeetingsDirectly = async () => {
     try {
-      // Try both possible localStorage keys for meetings
-      const storedMeetings = localStorage.getItem('submittedMeetings') || localStorage.getItem('meetings');
-      
-      if (!storedMeetings) {
-        console.log('No meetings found in localStorage');
-        return false;
+      console.log('Staff Dashboard: Fetching meetings directly from API');
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found for meeting fetch');
       }
       
-      const parsedMeetings = JSON.parse(storedMeetings);
+      // Make direct API call using axios instead of fetch
+      const response = await axios.get('/meetings/user/current');
+      console.log('Staff Dashboard: Raw meetings data from API:', response.data);
       
-      if (!Array.isArray(parsedMeetings) || parsedMeetings.length === 0) {
-        console.log('No valid meetings found in localStorage');
-        return false;
-      }
-      
-      console.log('Found', parsedMeetings.length, 'meetings in localStorage');
-      
-      // Filter staff meetings
-      const staffMeetings = parsedMeetings.filter(meeting => {
-        // Check if role exists and is 'staff' (case-insensitive)
-        const role = (meeting.role || '').toLowerCase();
-        return role === 'staff' || role.includes('staff');
-      });
-      
-      console.log('Filtered', staffMeetings.length, 'staff meetings from', parsedMeetings.length, 'total meetings');
-      
-      if (staffMeetings.length > 0) {
-        // Sort and categorize meetings
+      // Process the response based on its structure
+      const meetingsData = response.data;
+      if (meetingsData) {
+        console.log('Staff Dashboard: Successfully fetched meetings from API');
+        
+        let pastMeetings = [];
+        let currentMeetings = [];
+        let futureMeetings = [];
+        let allMeetings = [];
+        
+        // Check if the API returns categorized meetings or a flat array
+        if (Array.isArray(meetingsData)) {
+          console.log('Staff Dashboard: API returned an array of meetings, categorizing them');
+          allMeetings = meetingsData;
+          
+          // Categorize meetings manually
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         
-        const currentMeetings = [];
-        const pastMeetings = [];
-        const futureMeetings = [];
-        
-        staffMeetings.forEach(meeting => {
-          const meetingDate = new Date(meeting.date || meeting.meetingDate);
-          meetingDate.setHours(0, 0, 0, 0);
-          
-          if (meetingDate.getTime() === today.getTime()) {
-            currentMeetings.push(meeting);
-          } else if (meetingDate < today) {
+          meetingsData.forEach(meeting => {
+            const meetingDate = new Date(meeting.meetingDate || meeting.date);
+            const meetingDateOnly = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate());
+            
+            if (meetingDateOnly < today) {
             pastMeetings.push(meeting);
+            } else if (meetingDateOnly.getTime() === today.getTime()) {
+              currentMeetings.push(meeting);
           } else {
             futureMeetings.push(meeting);
           }
         });
+        } else if (typeof meetingsData === 'object') {
+          // API returned an object with categories
+          console.log('Staff Dashboard: API returned categorized meetings');
+          pastMeetings = meetingsData.pastMeetings || [];
+          currentMeetings = meetingsData.currentMeetings || [];
+          futureMeetings = meetingsData.futureMeetings || [];
+          allMeetings = [
+            ...pastMeetings,
+            ...currentMeetings,
+            ...futureMeetings
+          ];
+        }
         
-        // Update Redux store
+        console.log(`Staff Dashboard: Processed ${allMeetings.length} total meetings`,
+                   `(${pastMeetings.length} past, ${currentMeetings.length} current, ${futureMeetings.length} future)`);
+        
+        // Update Redux state with categorized meetings
         dispatch({
           type: 'meetings/setMeetings',
           payload: {
@@ -321,241 +567,252 @@ const StaffDashboard = () => {
           }
         });
         
-        // Also update timer if we have an upcoming meeting
-        if (futureMeetings.length > 0) {
-          // Sort future meetings by date
-          const sortedMeetings = [...futureMeetings].sort((a, b) => {
-            const dateA = new Date(a.date || a.meetingDate || '');
-            const dateB = new Date(b.date || b.meetingDate || '');
-            return dateA - dateB;
-          });
-          
-          const nextMeeting = sortedMeetings[0];
-          const meetingDate = new Date(`${nextMeeting.date || nextMeeting.meetingDate}T${nextMeeting.startTime || '00:00'}`);
-          
-          if (!isNaN(meetingDate.getTime())) {
-            const diffMs = Math.max(0, meetingDate - now);
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffSecs = Math.floor((diffMs % 60000) / 1000);
-            
-            const timerData = {
-              id: nextMeeting.id,
-              title: nextMeeting.title,
-              date: meetingDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              time: nextMeeting.startTime,
-              minutesLeft: diffMins,
-              secondsLeft: diffSecs,
-              originalDate: nextMeeting.date || nextMeeting.meetingDate,
-              role: 'staff'
-            };
-            
-            // Update staff timer data
-            localStorage.setItem('staffNextMeetingData', JSON.stringify(timerData));
-          }
-        }
-        
-        dispatch(showSnackbar({
-          message: `Loaded ${staffMeetings.length} staff meetings`,
-          severity: 'success'
-        }));
+        // Store in localStorage for persistence across refreshes
+        localStorage.setItem('staffMeetings', JSON.stringify(allMeetings));
+        console.log('Staff Dashboard: Saved meetings to localStorage');
         
         return true;
       }
-      
-      console.log('No staff meetings found in localStorage');
       return false;
     } catch (error) {
-      console.error('Error loading meetings from localStorage:', error);
-      return false;
-    }
-  };
-
-  // Add sortAndSetMeetings function
-  const sortAndSetMeetings = (meetings) => {
-    if (!Array.isArray(meetings)) {
-      console.error('Invalid meetings data received:', meetings);
-      return;
-    }
-
-    // Sort meetings by date
-    const sortedMeetings = meetings.sort((a, b) => {
-      const dateA = new Date(a.date || a.meetingDate || '');
-      const dateB = new Date(b.date || b.meetingDate || '');
-      return dateA - dateB;
-    });
-
-    // Update state with sorted meetings
+      console.error('Staff Dashboard: Error fetching meetings from API:', error.response || error);
+      
+      // Try loading from localStorage as a last resort
+      try {
+        const storedMeetings = localStorage.getItem('staffMeetings');
+        if (storedMeetings) {
+          const parsedMeetings = JSON.parse(storedMeetings);
+          if (Array.isArray(parsedMeetings)) {
+            console.log('Staff Dashboard: Loading meetings from localStorage:', parsedMeetings.length);
+            
+            // Categorize meetings
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const pastMeetings = [];
+            const currentMeetings = [];
+            const futureMeetings = [];
+            
+            parsedMeetings.forEach(meeting => {
+              const meetingDate = new Date(meeting.meetingDate || meeting.date);
+              const meetingDateOnly = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate());
+              
+              if (meetingDateOnly < today) {
+                pastMeetings.push(meeting);
+              } else if (meetingDateOnly.getTime() === today.getTime()) {
+                currentMeetings.push(meeting);
+              } else {
+                futureMeetings.push(meeting);
+              }
+            });
+            
+            // Update Redux state
     dispatch({
       type: 'meetings/setMeetings',
       payload: {
-        pastMeetings: sortedMeetings.filter(m => {
-          const meetingDate = new Date(m.date || m.meetingDate || '');
-          return meetingDate < new Date();
-        }),
-        currentMeetings: sortedMeetings.filter(m => {
-          const meetingDate = new Date(m.date || m.meetingDate || '');
-          const today = new Date();
-          return meetingDate.toDateString() === today.toDateString();
-        }),
-        futureMeetings: sortedMeetings.filter(m => {
-          const meetingDate = new Date(m.date || m.meetingDate || '');
-          return meetingDate > new Date();
-        })
-      }
-    });
-
-    // Store in localStorage
-    try {
-      localStorage.setItem('meetings', JSON.stringify(sortedMeetings));
-      localStorage.setItem('submittedMeetings', JSON.stringify(sortedMeetings));
-    } catch (error) {
-      console.error('Error storing meetings in localStorage:', error);
-    }
-  };
-
-  // Update fetchMeetings function
-  const fetchMeetings = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('No token found');
-        return;
-      }
-
-      // Get staff's department from profile
-      const userProfile = JSON.parse(localStorage.getItem('userData'));
-      const staffDepartment = userProfile?.department;
-
-      // First try to load from localStorage
-      const storedMeetings = localStorage.getItem('meetings');
-      if (storedMeetings) {
-        try {
-          const parsedMeetings = JSON.parse(storedMeetings);
-          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-            // Filter meetings based on staff's department
-            const filteredMeetings = parsedMeetings.filter(meeting => 
-              meeting.role?.toLowerCase() === 'staff' &&
-              meeting.department === staffDepartment
-            );
-            sortAndSetMeetings(filteredMeetings);
-            return;
+                pastMeetings,
+                currentMeetings,
+                futureMeetings
+              }
+            });
+            
+            return true;
           }
-        } catch (error) {
-          console.error('Error parsing stored meetings:', error);
         }
+      } catch (localStorageError) {
+        console.error('Staff Dashboard: Error loading meetings from localStorage:', localStorageError);
       }
-
-      // If no valid meetings in localStorage, fetch from API
-      const response = await API.get('/meetings');
-      if (response.data && Array.isArray(response.data)) {
-        // Filter meetings based on staff's department
-        const filteredMeetings = response.data.filter(meeting => 
-          meeting.role?.toLowerCase() === 'staff' &&
-          meeting.department === staffDepartment
-        );
-        sortAndSetMeetings(filteredMeetings);
-      }
-    } catch (error) {
-      console.error('Error fetching meetings from API:', error);
+      
+      // If all else fails, return empty meetings
+      dispatch({
+        type: 'meetings/setMeetings',
+        payload: {
+          pastMeetings: [],
+          currentMeetings: [],
+          futureMeetings: []
+        }
+      });
+      
       dispatch(showSnackbar({
-        message: 'Error loading meetings. Please try again.',
+        message: 'Could not load meetings. Please try again later.',
         severity: 'error'
       }));
+      
+      return false;
     }
   };
 
   // Render staff profile section
-  const renderProfile = () => (
-    <Paper sx={{ 
-      p: 4, 
-      borderRadius: 0,
-      position: 'relative'  
-    }}>
-      <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Staff Profile</Typography>
-      
-      <Box sx={{ 
-        display: 'flex',
-        alignItems: 'flex-start',
-        mb: 0
+  const renderProfile = () => {
+    // Get user data from both Redux and localStorage
+    const userData = JSON.parse(localStorage.getItem('userData')) || {};
+    console.log('Staff Profile - User Data:', userData);
+
+    // Combine profile data with fallbacks
+    const profileData = {
+      name: profile?.fullName || userData?.fullName || 'Professor',
+      staffId: profile?.username || userData?.username || 'CS001',
+      department: profile?.department?.name || userData?.department?.name || 'Computer Science and Engineering',
+      position: 'Professor', // Default position for staff
+      email: profile?.email || userData?.email || 'CS001@shanmugha.edu.in'
+    };
+
+    return (
+      <Paper sx={{ 
+        p: 4, 
+        borderRadius: 0,
+        position: 'relative'  
       }}>
-        <Avatar sx={{ width: 76, height: 76, bgcolor: '#1A2137', mr: 4 }}>
-          {profile?.name ? profile.name.charAt(0) : 'J'}
-        </Avatar>
+        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Staff Profile</Typography>
         
-        <Box sx={{ width: '100%' }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, mb: 3 }}>
-            <Box>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Name</Typography>
-                <Typography variant="body1">{profile?.name || 'Loading...'}</Typography>
+        <Box sx={{ 
+          display: 'flex',
+          alignItems: 'flex-start',
+          mb: 0
+        }}>
+          <Avatar sx={{ width: 76, height: 76, bgcolor: '#1A2137', mr: 4 }}>
+            {profileData.name ? profileData.name.charAt(0) : 'P'}
+          </Avatar>
+          
+          <Box sx={{ width: '100%' }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, mb: 3 }}>
+              <Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Name</Typography>
+                  <Typography variant="body1">{profileData.name}</Typography>
+                </Box>
+              </Box>
+              
+              <Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Staff ID</Typography>
+                  <Typography variant="body1">{profileData.staffId}</Typography>
+                </Box>
+              </Box>
+            </Box>
+            
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, mb: 3 }}>
+              <Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Department</Typography>
+                  <Typography variant="body1">{profileData.department}</Typography>
+                </Box>
+              </Box>
+              
+              <Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Position</Typography>
+                  <Typography variant="body1">{profileData.position}</Typography>
+                </Box>
               </Box>
             </Box>
             
             <Box>
               <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Staff ID</Typography>
-                <Typography variant="body1">{profile?.staffId || profile?.username || 'Loading...'}</Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Email ID</Typography>
+                <Typography variant="body1">{profileData.email}</Typography>
               </Box>
-            </Box>
-          </Box>
-          
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, mb: 3 }}>
-            <Box>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Department</Typography>
-                <Typography variant="body1">{profile?.department?.name || 'Loading...'}</Typography>
-              </Box>
-            </Box>
-            
-            <Box>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Position</Typography>
-                <Typography variant="body1">{profile?.position || 'Loading...'}</Typography>
-              </Box>
-            </Box>
-          </Box>
-          
-          <Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#666', mb: 1 }}>Email ID</Typography>
-              <Typography variant="body1">{profile?.email || 'Loading...'}</Typography>
             </Box>
           </Box>
         </Box>
-      </Box>
-    </Paper>
-  );
+      </Paper>
+    );
+  };
 
   // Render feedback section
-  const renderFeedback = () => (
+  const renderFeedback = () => {
+    console.log('Rendering feedback section, Redux questions:', questions);
+    console.log('Rendering feedback section, local questions:', localQuestions);
+    console.log('Questions loading state:', questionsLoading);
+    console.log('Questions error state:', questionsError);
+    
+    // Use local questions instead of Redux state
+    const currentQuestions = localQuestions.length > 0 ? localQuestions : (questions || []);
+    
+    console.log('Using questions for rendering:', currentQuestions);
+    
+    return (
     <Paper sx={{ p: 4, borderRadius: 0 }}>
       <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Submit Feedback</Typography>
       
-      {questions.length === 0 ? (
-        <Typography align="center">No questions available. Please select a meeting from the schedule.</Typography>
+      {questionsLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : questionsError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {questionsError}
+          <Button 
+            size="small" 
+            onClick={fetchQuestions} 
+            sx={{ ml: 2 }}
+          >
+            Retry
+          </Button>
+        </Alert>
+      ) : currentQuestions.length === 0 ? (
+        <Alert severity="info">
+          No feedback questions available for your department.
+          <Button 
+            size="small" 
+            onClick={fetchQuestions} 
+            sx={{ ml: 2 }}
+          >
+            Refresh Questions
+          </Button>
+        </Alert>
       ) : (
         <>
-          {questions.map((question) => (
-            <Box key={question.id} sx={{ mb: 3 }}>
-              <Typography variant="body1" gutterBottom>
+          {currentQuestions.map((question) => (
+            <Box 
+              key={question.id} 
+              sx={{ 
+                mb: 4,
+                p: 3,
+                border: '1px solid #e0e0e0',
+                borderRadius: 1,
+                '&:hover': {
+                  backgroundColor: '#f5f5f5'
+                }
+              }}
+            >
+              <Typography 
+                variant="body1" 
+                gutterBottom
+                sx={{ 
+                  fontWeight: 500,
+                  color: '#1A2137'
+                }}
+              >
                 {question.text}
               </Typography>
+              <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
+                <Typography variant="body2" color="textSecondary" sx={{ mr: 2 }}>
+                  Your Rating:
+              </Typography>
               <Rating
-                value={ratings[question.id] || 0}
+                name={`rating-${question.id}`}
+                value={localRatings[question.id] || 0}
                 onChange={(event, newValue) => handleRatingChange(question.id, newValue)}
                 size="medium"
-                sx={{ color: '#FFD700', mt: 1 }}
-              />
+                precision={1}
+                  sx={{ 
+                    color: '#FFD700',
+                    '& .MuiRating-iconFilled': {
+                      color: '#FFD700'
+                    }
+                  }}
+                />
+              </Box>
             </Box>
           ))}
           
-          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
             <Button 
               variant="contained" 
-              onClick={handleSubmitFeedback}
-              disabled={feedbackLoading}
-                    sx={{
-                mt: 2, 
+              onClick={handleSubmitFeedback} 
+              disabled={loading || currentQuestions.length === 0}
+              sx={{ 
                 bgcolor: '#1A2137', 
                 '&:hover': { bgcolor: '#2A3147' },
                 fontWeight: 'medium',
@@ -563,104 +820,177 @@ const StaffDashboard = () => {
                 py: 1
               }}
             >
-              {feedbackLoading ? 'Submitting...' : 'Submit Feedback'}
+              {loading ? 'Submitting...' : 'Submit Feedback'}
             </Button>
           </Box>
         </>
       )}
     </Paper>
   );
+  };
 
   // Render meeting schedule section
   const renderViewMeetingSchedule = () => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // Extract meetings from different sources in state to ensure we catch all meetings
+    const allMeetings = [
+      ...(meetings.pastMeetings || []),
+      ...(meetings.currentMeetings || []),
+      ...(meetings.futureMeetings || []),
+      // Also try the nested meetings structure
+      ...((meetings.meetings?.pastMeetings || [])),
+      ...((meetings.meetings?.currentMeetings || [])), 
+      ...((meetings.meetings?.futureMeetings || []))
+    ];
     
-    // Filter meetings to show only present and upcoming ones
-    const filteredMeetings = meetings.filter(meeting => {
-      const meetingDate = new Date(meeting.date || meeting.meetingDate);
-      return meetingDate >= today;
-    }).sort((a, b) => new Date(a.date || a.meetingDate) - new Date(b.date || b.meetingDate));
+    // Remove duplicates if any (by id)
+    const uniqueMeetings = allMeetings.filter((meeting, index, self) =>
+      index === self.findIndex((m) => m.id === meeting.id)
+    );
+    
+    console.log('Staff Dashboard - renderViewMeetingSchedule: Current meetings state:', meetings);
+    console.log('Staff Dashboard - renderViewMeetingSchedule: Combined allMeetings:', uniqueMeetings);
 
     return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h5" gutterBottom>
+      <Paper sx={{ p: 4, borderRadius: 0 }}>
+        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>
           View Meeting Schedule
         </Typography>
         
-        {filteredMeetings.length === 0 ? (
-          <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
-            No meetings scheduled.
-          </Typography>
+        {meetings.loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+            <CircularProgress />
+          </Box>
         ) : (
-          <Grid container spacing={3}>
-            {filteredMeetings.map((meeting) => {
-              const meetingDate = new Date(meeting.date || meeting.meetingDate);
-              const isToday = meetingDate.toDateString() === today.toDateString();
+          <>
+            {uniqueMeetings && uniqueMeetings.length > 0 ? (
+              <TableContainer>
+                <Table sx={{ minWidth: 650 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Title</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Time</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Department</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {uniqueMeetings.map((meeting) => {
+                      console.log('Staff Dashboard - renderViewMeetingSchedule: Rendering meeting:', meeting);
+                      // Normalize meeting data
+                      const meetingDate = meeting.meetingDate || meeting.date;
+                      const formattedDate = meetingDate 
+                        ? new Date(meetingDate).toLocaleDateString() 
+                        : 'Not specified';
+                      
+                      // Get department name
+                      const departmentName = meeting.department?.name || 
+                        (typeof meeting.department === 'string' ? meeting.department : null) ||
+                        getDepartmentNameById(meeting.departmentId) || 
+                        'Not specified';
               
               return (
-                <Grid item xs={12} key={meeting.id}>
-                  <Card sx={{ borderRadius: 0, mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        <TableRow 
+                          key={meeting.id || Math.random().toString(36).substr(2, 9)}
+                          sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                        >
+                          <TableCell component="th" scope="row">
                         {meeting.title}
-                      </Typography>
-                      
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-                        <Typography variant="body2" sx={{ 
-                          color: 'primary.main',
-                          bgcolor: '#e3f2fd',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Date: ${meetingDate.toLocaleDateString()}`}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ 
-                          color: 'success.main',
-                          bgcolor: '#e8f5e9',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Time: ${meeting.startTime} - ${meeting.endTime}`}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ 
-                          color: '#6a1b9a',
-                          bgcolor: '#f3e5f5',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Department: ${meeting.department || 'Not specified'}`}
-                        </Typography>
-                      </Box>
-                      
-                      <Typography variant="body2" sx={{ 
-                        color: isToday ? 'success.main' : 'info.main',
-                        fontWeight: 'bold',
-                        mt: 2
-                      }}>
-                        {isToday ? 'Today\'s Meeting' : 'Upcoming Meeting'}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                          </TableCell>
+                          <TableCell>{formattedDate}</TableCell>
+                          <TableCell>{`${meeting.startTime || '00:00'} - ${meeting.endTime || '00:00'}`}</TableCell>
+                          <TableCell>{departmentName}</TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={meeting.status || 'Scheduled'} 
+                              size="small"
+                              sx={{ 
+                                bgcolor: 
+                                  meeting.status === 'completed' ? '#e8f5e9' : 
+                                  meeting.status === 'cancelled' ? '#ffebee' : 
+                                  meeting.status === 'in-progress' ? '#fff3e0' : '#e3f2fd',
+                                color: 
+                                  meeting.status === 'completed' ? '#2e7d32' : 
+                                  meeting.status === 'cancelled' ? '#c62828' : 
+                                  meeting.status === 'in-progress' ? '#ef6c00' : '#0277bd',
+                                textTransform: 'capitalize'
+                              }} 
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Button 
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              onClick={() => handleFetchQuestions(meeting.id)}
+                              startIcon={<FeedbackIcon />}
+                            >
+                              Feedback
+                            </Button>
+                          </TableCell>
+                        </TableRow>
               );
             })}
-          </Grid>
-        )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography variant="body1" color="textSecondary">
+                  No meetings scheduled at this time.
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  color="primary"
+                  onClick={() => fetchMeetingsDirectly()}
+                  sx={{ mt: 2 }}
+                >
+                  Refresh Meetings
+                </Button>
       </Box>
+            )}
+          </>
+        )}
+      </Paper>
     );
   };
 
-  // Update the tabs array
+  // Helper function to get department name by ID
+  const getDepartmentNameById = (id) => {
+    if (!id) return null;
+    
+    const departmentMap = {
+      1: 'Computer Science and Engineering',
+      2: 'Information Technology',
+      3: 'Electronics and Communication',
+      4: 'Electrical Engineering',
+      5: 'Mechanical Engineering'
+    };
+    
+    return departmentMap[id] || `Department ${id}`;
+  };
+
+  // Update sidebar click handler
+  const handleSectionChange = (sectionName) => {
+    console.log('Changing section to:', sectionName);
+    dispatch(setActiveSection(sectionName));
+    
+    // Force fetch questions if switching to feedback section
+    if (sectionName === 'submit-feedback') {
+      console.log('Submit Feedback section selected, forcing question fetch');
+      // Add a small delay to ensure the section change has been processed
+      setTimeout(() => {
+      fetchQuestions();
+      }, 100);
+    }
+  };
+
+  // Update tabs array
   const tabs = [
-    { id: 0, label: "Profile", icon: <PersonIcon /> },
-    { id: 1, label: "View Meetings", icon: <EventIcon /> },
-    { id: 2, label: "View Questions", icon: <QuestionAnswerIcon /> }
+    { id: 0, label: "Profile", icon: <PersonIcon />, section: 'profile' },
+    { id: 1, label: "View Meetings", icon: <EventIcon />, section: 'view-meetings' },
+    { id: 2, label: "Submit Feedback", icon: <QuestionAnswerIcon />, section: 'submit-feedback' }
   ];
 
   // Render meeting timer section
@@ -998,6 +1328,24 @@ const StaffDashboard = () => {
     );
   };
 
+  // Main content
+  const renderMainContent = () => {
+    console.log('Rendering main content for section:', activeSection);
+    
+    switch(activeSection) {
+      case 'profile':
+        return renderProfile();
+      case 'view-meetings':
+        return renderViewMeetingSchedule();
+      case 'submit-feedback':
+        return renderFeedback();
+      case 'meeting-timer':
+        return renderMeetingTimer();
+      default:
+        return renderProfile();
+    }
+  }
+
   return (
     <Box sx={{ display: 'flex' }}>
       {/* Sidebar */}
@@ -1024,11 +1372,11 @@ const StaffDashboard = () => {
             <ListItem 
               key={tab.id}
               button 
-              onClick={() => dispatch(setActiveSection(tab.label.toLowerCase().replace(' ', '-')))}
+              onClick={() => handleSectionChange(tab.section)}
               sx={{ 
                 py: 2, 
                 pl: 3,
-                bgcolor: activeSection === tab.label.toLowerCase().replace(' ', '-') ? '#2A3147' : 'transparent',
+                bgcolor: activeSection === tab.section ? '#2A3147' : 'transparent',
                 '&:hover': { bgcolor: '#2A3147' }
               }}
             >
@@ -1070,10 +1418,7 @@ const StaffDashboard = () => {
         }}
       >
         <Container maxWidth="lg">
-          {activeSection === 'profile' && renderProfile()}
-          {activeSection === 'view-meetings' && renderViewMeetingSchedule()}
-          {activeSection === 'view-questions' && renderFeedback()}
-          {activeSection === 'meeting-timer' && renderMeetingTimer()}
+          {renderMainContent()}
         </Container>
       </Box>
 
@@ -1081,10 +1426,14 @@ const StaffDashboard = () => {
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
-        onClose={handleCloseSnackbar}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity} 
+          sx={{ width: '100%' }}
+        >
           {snackbar.message}
         </Alert>
       </Snackbar>

@@ -13,8 +13,20 @@ verifyToken = (req, res, next) => {
     });
   }
 
-  jwt.verify(token, config.secret, (err, decoded) => {
+  jwt.verify(token, config.secret, {
+    algorithms: [config.algorithm],
+    clockTolerance: config.clockTolerance,
+    issuer: 'feedback-management-system'
+  }, (err, decoded) => {
     if (err) {
+      console.error('JWT Verification Error:', err.name, '-', err.message);
+      
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).send({
+          message: 'Token expired! Please log in again.'
+        });
+      }
+      
       return res.status(401).send({
         message: 'Unauthorized!'
       });
@@ -164,6 +176,29 @@ isStudentOrStaff = async (req, res, next) => {
   }
 };
 
+// Check if user has HOD role
+isHOD = async (req, res, next) => {
+  try {
+    const user = await User.findByPk(req.userId);
+    const roles = await user.getRoles();
+
+    for (let i = 0; i < roles.length; i++) {
+      if (roles[i].name === 'hod') {
+        req.userRoles = roles.map(role => `ROLE_${role.name.toUpperCase()}`);
+        return next();
+      }
+    }
+
+    return res.status(403).send({
+      message: 'Require HOD Role!'
+    });
+  } catch (error) {
+    return res.status(500).send({
+      message: 'Unable to validate HOD role!'
+    });
+  }
+};
+
 const authJwt = {
   verifyToken,
   isStudent,
@@ -171,7 +206,8 @@ const authJwt = {
   isAcademicDirector,
   isExecutiveDirector,
   isAcademicDirectorOrExecutiveDirector,
-  isStudentOrStaff
+  isStudentOrStaff,
+  isHOD
 };
 
 module.exports = authJwt;

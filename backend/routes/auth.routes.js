@@ -16,4 +16,7 @@ router.post(
 // User login endpoint
 router.post('/signin', authController.signin);
 
+// Token verification endpoint
+router.get('/verify', authController.verifyToken);
+
 module.exports = router;

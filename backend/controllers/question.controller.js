@@ -8,7 +8,7 @@ const Role = db.role;
 exports.createQuestion = async (req, res) => {
   try {
     // Validate request
-    if (!req.body.text || !req.body.year || !req.body.departmentId) {
+    if (!req.body.text || !req.body.departmentId) {
       return res.status(400).send({ message: 'Required fields missing' });
     }
 
@@ -19,26 +19,60 @@ exports.createQuestion = async (req, res) => {
     }
     
     // Validate role if provided
-    let role = 'both'; // Default role
-    if (req.body.role) {
-      if (!['student', 'staff', 'both'].includes(req.body.role)) {
+    let role = req.body.role || 'both'; // Default role
+    if (!['student', 'staff', 'both'].includes(role)) {
         return res.status(400).send({ message: 'Invalid role. Must be student, staff, or both' });
+    }
+
+    // Validate and set year only for student questions
+    let year = null;
+    if (role === 'student') {
+      if (!req.body.year) {
+        return res.status(400).send({ message: 'Year is required for student questions' });
       }
-      role = req.body.role;
+      year = req.body.year;
     }
 
     // Create question
     const question = await Question.create({
       text: req.body.text,
-      year: req.body.year,
+      year: year, // Will be null for staff and both roles
       departmentId: req.body.departmentId,
       createdBy: req.userId,
       role: role,
       active: true
     });
 
-    res.status(201).send(question);
+    // Fetch the created question with department info
+    const questionWithDept = await Question.findByPk(question.id, {
+      include: [{
+        model: Department,
+        as: 'department',
+        attributes: ['id', 'name']
+      }]
+    });
+
+    // Format response
+    const formattedQuestion = {
+      id: questionWithDept.id,
+      text: questionWithDept.text,
+      targetRole: questionWithDept.role,
+      departmentId: questionWithDept.departmentId,
+      department: questionWithDept.department ? questionWithDept.department.name : null,
+      year: questionWithDept.year,
+      roleId: questionWithDept.role === 'student' ? 1 : questionWithDept.role === 'staff' ? 2 : 3,
+      active: questionWithDept.active
+    };
+
+    const newQuestionWithDetails = {
+      ...formattedQuestion,
+      role: questionWithDept.role,
+      year: questionWithDept.role === 'student' ? parseInt(year) : null
+    };
+
+    res.status(201).send(newQuestionWithDetails);
   } catch (error) {
+    console.error('Error in createQuestion:', error);
     res.status(500).send({ message: error.message });
   }
 };
@@ -60,46 +94,66 @@ exports.getAllQuestions = async (req, res) => {
     }
     
     // Determine which questions to show based on user's primary role
-    let roleCondition = {};
+    let whereCondition = {
+      active: true
+    };
     
     // If user has a primary role
     if (user.primaryRole) {
-      // Check if user has student role
-      if (user.primaryRole.name === 'student') {
-        roleCondition = {
-          [db.Sequelize.Op.or]: [
-            { role: 'student' },
-            { role: 'both' }
-          ]
-        };
-      } 
-      // Check if user has staff role
-      else if (user.primaryRole.name === 'staff') {
-        roleCondition = {
-          [db.Sequelize.Op.or]: [
-            { role: 'staff' },
-            { role: 'both' }
-          ]
-        };
+      const roleName = user.primaryRole.name.toLowerCase();
+      
+      // For students and staff, filter by their role
+      if (roleName === 'student' || roleName === 'staff') {
+        whereCondition.role = roleName;
+        
+        // For students, also match their department and year if available
+        if (roleName === 'student' && user.departmentId && user.year) {
+          whereCondition.departmentId = user.departmentId;
+          whereCondition.year = user.year;
+        }
+        // For staff, match their department if available
+        else if (roleName === 'staff' && user.departmentId) {
+          whereCondition.departmentId = user.departmentId;
+        }
       }
       // For academic directors and executive directors, show all questions
       // by not applying any role filter
     }
     
     const questions = await Question.findAll({
-      where: {
-        active: true,
-        ...roleCondition
-      },
+      where: whereCondition,
       include: [{
         model: Department,
         as: 'department',
         attributes: ['id', 'name']
-      }]
+      }],
+      attributes: [
+        'id',
+        'text',
+        'role',
+        'departmentId',
+        'year',
+        'active',
+        'createdAt',
+        'updatedAt'
+      ]
     });
 
-    res.status(200).send(questions);
+    // Format questions for frontend
+    const formattedQuestions = questions.map(q => ({
+      id: q.id,
+      text: q.text,
+      targetRole: q.role,
+      departmentId: q.departmentId,
+      department: q.department ? q.department.name : null,
+      year: q.year,
+      roleId: q.role === 'student' ? 1 : q.role === 'staff' ? 2 : 3,
+      active: q.active
+    }));
+
+    res.status(200).send(formattedQuestions);
   } catch (error) {
+    console.error('Error in getAllQuestions:', error);
     res.status(500).send({ message: error.message });
   }
 };
@@ -108,64 +162,68 @@ exports.getAllQuestions = async (req, res) => {
 exports.getQuestionsByDepartmentAndYear = async (req, res) => {
   try {
     const departmentId = req.params.departmentId;
+    const role = req.query.role;
     const year = req.params.year;
     
-    // Get user to determine their role
-    const user = await User.findByPk(req.userId, {
-      include: [{
-        model: Role,
-        as: 'primaryRole',
-        attributes: ['id', 'name']
-      }]
-    });
-    
-    if (!user) {
-      return res.status(404).send({ message: 'User not found' });
-    }
-    
-    // Determine which questions to show based on user's primary role
-    let roleCondition = {};
-    
-    // If user has a primary role
-    if (user.primaryRole) {
-      // Check if user has student role (ID 1)
-      if (user.primaryRole.name === 'student') {
-        roleCondition = {
-          [db.Sequelize.Op.or]: [
-            { role: 'student' },
-            { role: 'both' }
-          ]
+    // Build the where condition
+    let whereCondition = {
+      departmentId: departmentId,
+      active: true
+    };
+
+    // Add role condition if provided
+    if (role) {
+      if (role === 'staff') {
+        // For staff questions
+        whereCondition.role = {
+          [db.Sequelize.Op.or]: ['staff', 'both']
         };
-      } 
-      // Check if user has staff role (ID 3)
-      else if (user.primaryRole.name === 'staff') {
-        roleCondition = {
-          [db.Sequelize.Op.or]: [
-            { role: 'staff' },
-            { role: 'both' }
-          ]
+      } else if (role === 'student') {
+        // For student questions
+        whereCondition.role = {
+          [db.Sequelize.Op.or]: ['student', 'both']
         };
+        if (year) {
+          whereCondition.year = year;
+        }
       }
-      // For academic directors and executive directors, show all questions
-      // by not applying any role filter
+    } else if (year) {
+      // If no role specified but year is specified, include student and both roles
+      whereCondition.role = {
+        [db.Sequelize.Op.or]: ['student', 'both']
+      };
+      whereCondition.year = year;
     }
+
+    console.log('Query conditions:', whereCondition); // Add this for debugging
     
     const questions = await Question.findAll({
-      where: {
-        departmentId: departmentId,
-        year: year,
-        active: true,
-        ...roleCondition
-      },
+      where: whereCondition,
       include: [{
         model: Department,
         as: 'department',
         attributes: ['id', 'name']
-      }]
+      }],
+      order: [['createdAt', 'DESC']]
     });
 
-    res.status(200).send(questions);
+    console.log('Found questions:', questions.length); // Add this for debugging
+
+    // Format questions for frontend
+    const formattedQuestions = questions.map(q => ({
+      id: q.id,
+      text: q.text,
+      targetRole: q.role,
+      departmentId: q.departmentId,
+      department: q.department ? q.department.name : null,
+      year: q.year,
+      roleId: q.role === 'student' ? 1 : q.role === 'staff' ? 2 : 3,
+      active: q.active
+    }));
+
+    res.status(200).send(formattedQuestions);
   } catch (error) {
+    console.error('Error in getQuestionsByDepartmentAndYear:', error);
     res.status(500).send({ message: error.message });
   }
 };

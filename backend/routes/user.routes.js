@@ -6,10 +6,18 @@ const authJwt = require('../middleware/authJwt');
 // Get current user profile
 router.get('/profile', [authJwt.verifyToken], userController.getCurrentUser);
 
-// Get all users (admin only)
+// Get all users (admin and HOD)
 router.get(
   '/all',
-  [authJwt.verifyToken, authJwt.isAcademicDirectorOrExecutiveDirector],
+  [authJwt.verifyToken, (req, res, next) => {
+    authJwt.isAcademicDirectorOrExecutiveDirector(req, res, (err) => {
+      if (err) {
+        authJwt.isHOD(req, res, next);
+      } else {
+        next();
+      }
+    });
+  }],
   userController.getAllUsers
 );
 
@@ -29,14 +37,30 @@ router.delete(
 // Get users by department
 router.get(
   '/department/:departmentId',
-  [authJwt.verifyToken, authJwt.isAcademicDirectorOrExecutiveDirector],
+  [authJwt.verifyToken, (req, res, next) => {
+    authJwt.isAcademicDirectorOrExecutiveDirector(req, res, (err) => {
+      if (err) {
+        authJwt.isHOD(req, res, next);
+      } else {
+        next();
+      }
+    });
+  }],
   userController.getUsersByDepartment
 );
 
 // Get users by year
 router.get(
   '/year/:year',
-  [authJwt.verifyToken, authJwt.isAcademicDirectorOrExecutiveDirector],
+  [authJwt.verifyToken, (req, res, next) => {
+    authJwt.isAcademicDirectorOrExecutiveDirector(req, res, (err) => {
+      if (err) {
+        authJwt.isHOD(req, res, next);
+      } else {
+        next();
+      }
+    });
+  }],
   userController.getUsersByYear
 );
 

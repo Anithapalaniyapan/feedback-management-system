@@ -1,20 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
-import {
-  Box,
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Alert,
-  Grid,
-  InputAdornment,
-  Checkbox,
-  FormControlLabel,
-  useMediaQuery,
-  Link
+import { Box,Container,Paper,TextField,Button,Typography,Alert,Grid,InputAdornment,Checkbox,FormControlLabel,useMediaQuery,Link,Snackbar,CircularProgress
 } from '@mui/material';
 import EmailIcon from '@mui/icons-material/Email';
 import LockIcon from '@mui/icons-material/Lock';
@@ -24,6 +11,7 @@ import { login } from '../../redux/slices/authSlice';
 // Import images
 import logoImage from '../../assets/sri shanmugha logo.jpg';
 import graduationCapIcon from '../../assets/graduation-cap-icon.webp';
+import axios from 'axios';
 
 const Login = ({ setIsAuthenticated, setUserRole }) => {
   const [formData, setFormData] = useState({
@@ -33,8 +21,34 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({
+    username: false,
+    password: false
+  });
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
   const navigate = useNavigate();
   const dispatch = useDispatch();
+
+  // Check for remembered credentials on component mount
+  useEffect(() => {
+    const rememberedUser = localStorage.getItem('rememberedUser');
+    if (rememberedUser) {
+      try {
+        const userData = JSON.parse(rememberedUser);
+        setFormData({
+          username: userData.username || '',
+          password: userData.password || ''
+        });
+        setRememberMe(true);
+      } catch (error) {
+        console.error('Error parsing remembered user data:', error);
+        // Clear invalid data
+        localStorage.removeItem('rememberedUser');
+      }
+    }
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -42,76 +56,203 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
       ...prevState,
       [name]: value
     }));
+    
+    // Clear field error when user types
+    if (attemptedSubmit) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: value.trim() === ''
+      }));
+    }
+    
+    // Clear error message when user types
+    if (error) {
+      setError('');
+      setSnackbarOpen(false);
+    }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
+  const validateForm = () => {
+    const errors = {
+      username: formData.username.trim() === '',
+      password: formData.password.trim() === ''
+    };
     
+    setFieldErrors(errors);
+    setAttemptedSubmit(true);
+    
+    return !errors.username && !errors.password;
+  };
+
+  // Use useCallback to memoize the login function and prevent re-creation on re-renders
+  const handleLogin = useCallback(async () => {
+    // Don't proceed if already loading
+    if (loading) return;
+    
+    // Validate form
+    if (!validateForm()) {
+      return; // Stop if validation fails
+    }
+    
+    setLoading(true);
+    setError('');
+
+    // Store current values to use in callbacks to avoid closure issues
+    const currentUsername = formData.username;
+    const currentPassword = formData.password;
+    const currentRememberMe = rememberMe;
+
     try {
-      // Dispatch Redux login action
-      const resultAction = await dispatch(login(formData));
-      
-      if (login.fulfilled.match(resultAction)) {
-        // Get the role from the result
-        const userRole = resultAction.payload.userRole;
-        
-        console.log('Login response role:', userRole);
-        
-        // Extract role for consistent dashboard routing
-        let normalizedRole = '';
-        let targetRoute = '';
-        
-        // Normalize role
-        if (userRole && typeof userRole === 'string') {
-          // Convert to lowercase for consistent comparison
-          const roleLower = userRole.toLowerCase();
-          
-          if (roleLower.includes('student')) {
-            normalizedRole = 'student';
-                targetRoute = '/student-dashboard';
-          } else if (roleLower.includes('staff')) {
-            normalizedRole = 'staff';
-                targetRoute = '/staff-dashboard';
-          } else if (roleLower.includes('academic')) {
-            normalizedRole = 'academic-director';
-                targetRoute = '/academic-director-dashboard';
-          } else if (roleLower.includes('executive')) {
-            normalizedRole = 'executive-director';
-                targetRoute = '/executive-director-dashboard';
-          } else {
-            // Default
-            normalizedRole = roleLower;
-            throw new Error(`Unrecognized user role: ${userRole}`);
-          }
+      // Clone the credentials to avoid reference issues
+      const credentials = {
+        username: currentUsername,
+        password: currentPassword
+      };
+
+      // Isolate the API call
+      const response = await axios.post('http://localhost:8080/api/auth/signin', credentials);
+
+      // Process response only if component is still mounted
+      if (response.data && response.data.accessToken) {
+        // Handle Remember Me functionality
+        if (currentRememberMe) {
+          localStorage.setItem('rememberedUser', JSON.stringify({
+            username: currentUsername,
+            password: currentPassword
+          }));
         } else {
-          throw new Error('Invalid role data received from server');
+          localStorage.removeItem('rememberedUser');
         }
         
-        console.log(`Normalized role to: ${normalizedRole}, route: ${targetRoute}`);
+        localStorage.setItem('token', response.data.accessToken);
         
-        // Store the normalized role in localStorage with consistent format
-        localStorage.setItem('userRole', normalizedRole);
-        localStorage.setItem('isAuthenticated', 'true');
+        // Store complete user data
+        const userData = {
+          id: response.data.id,
+          username: response.data.username,
+          email: response.data.email,
+          fullName: response.data.fullName,
+          roles: response.data.roles,
+          department: response.data.department
+        };
+        localStorage.setItem('userData', JSON.stringify(userData));
         
-        // Update App.js state for backward compatibility
-        setIsAuthenticated(true);
-        setUserRole(normalizedRole);
+        // Set authentication state
+        if (setIsAuthenticated) {
+          setIsAuthenticated(true);
+        }
         
-        // Navigate to the appropriate dashboard
-        navigate(targetRoute, { replace: true });
-      } else if (login.rejected.match(resultAction)) {
-        // Handle login error
-        setError(resultAction.payload || 'Login failed. Please try again.');
+        // Determine user role and redirect
+        const userRole = response.data.roles?.[0]?.replace('ROLE_', '').toLowerCase() || '';
+        if (setUserRole) {
+          setUserRole(userRole);
+        }
+        
+        // Store role in localStorage for persistence
+        localStorage.setItem('userRole', userRole);
+        
+        // Redirect based on role using timeout to break event chain
+        setTimeout(() => {
+          switch(userRole) {
+            case 'academic_director':
+            case 'academic':
+              navigate('/academic-director-dashboard');
+              break;
+            case 'executive_director':
+            case 'executive':
+              navigate('/executive-director-dashboard');
+              break;
+            case 'hod':
+            case 'head_of_department':
+              navigate('/hod-dashboard');
+              break;
+            case 'staff':
+              navigate('/staff-dashboard');
+              break;
+            case 'student':
+              navigate('/student-dashboard');
+              break;
+            default:
+              setError('Invalid user role');
+              setSnackbarOpen(true);
+          }
+        }, 0);
+      } else {
+        throw new Error('Invalid response from server');
       }
-    } catch (err) {
-      console.error('Login error:', err);
-      setError(err.message || 'An unexpected error occurred. Please try again.');
+    } catch (error) {
+      console.error('Login error:', error);
+      
+      // Set a user-friendly error message
+      let errorMessage = 'Login failed. Please check your credentials and try again.';
+      
+      // Check for specific error responses
+      if (error.response) {
+        if (error.response.status === 401) {
+          errorMessage = 'Invalid username or password. Please try again.';
+        } else if (error.response.data?.message) {
+          // Server provided a specific error message
+          errorMessage = error.response.data.message;
+          
+          // Make messages more user-friendly
+          if (errorMessage.includes('User Not found')) {
+            errorMessage = 'Username not found. Please check your username and try again.';
+          } else if (errorMessage.includes('Invalid Password')) {
+            errorMessage = 'Incorrect password. Please try again.';
+          }
+        }
+      } else if (error.request) {
+        // The request was made but no response was received
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      }
+      
+      // Set the error message to display in the UI - use a setTimeout to break event chain
+      setTimeout(() => {
+        setError(errorMessage);
+        setSnackbarOpen(true);
+        
+        // Reset password field on error for security
+        setFormData(prev => ({
+          ...prev,
+          password: ''
+        }));
+      }, 0);
+    } finally {
+      // Use setTimeout to ensure this happens after any React events are processed
+      setTimeout(() => {
+        setLoading(false);
+      }, 0);
+    }
+  }, [loading, formData.username, formData.password, rememberMe, navigate, setIsAuthenticated, setUserRole, validateForm]); // Dependencies
+
+  // Handle key press with useCallback to prevent recreation
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Enter' && !loading) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Use setTimeout to break the event chain
+      setTimeout(() => {
+        handleLogin();
+      }, 0);
+    }
+  }, [handleLogin, loading]);
+
+  const handleRememberMeChange = (e) => {
+    const isChecked = e.target.checked;
+    setRememberMe(isChecked);
+    
+    // If unchecked, remove stored credentials
+    if (!isChecked) {
+      localStorage.removeItem('rememberedUser');
     }
   };
 
   const handleTogglePasswordVisibility = () => {
     setShowPassword(!showPassword);
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbarOpen(false);
   };
 
   return (
@@ -341,23 +482,36 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
             Login to your account
           </Typography>
           
-          {error && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{error}</Alert>}
-          
-          <Box component="form" onSubmit={handleSubmit}>
+          <Box
+            component="div"
+            sx={{
+              mt: 4,
+              width: '100%'
+            }}
+          >
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
             <Typography variant="caption" sx={{ mb: 0.5, fontWeight: 'medium', display: 'block' }}>
-              Email Address
+              Username or Email
             </Typography>
             <TextField
               fullWidth
               id="username"
               name="username"
-              placeholder="Enter your email"
+              placeholder="Enter your username or email"
               autoComplete="username"
               autoFocus
               value={formData.username}
               onChange={handleChange}
+              onKeyDown={handleKeyDown}
               sx={{ mb: 2 }}
               size="small"
+              error={fieldErrors.username}
+              helperText={fieldErrors.username ? "Username is required" : ""}
+              disabled={loading}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -379,8 +533,12 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
               autoComplete="current-password"
               value={formData.password}
               onChange={handleChange}
+              onKeyDown={handleKeyDown}
               sx={{ mb: 1.5 }}
               size="small"
+              error={fieldErrors.password}
+              helperText={fieldErrors.password ? "Password is required" : ""}
+              disabled={loading}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -424,8 +582,9 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
                 control={
                   <Checkbox 
                     checked={rememberMe} 
-                    onChange={(e) => setRememberMe(e.target.checked)}
+                    onChange={handleRememberMeChange}
                     size="small"
+                    disabled={loading}
                     sx={{
                       color: '#1A2137',
                       '&.Mui-checked': {
@@ -436,15 +595,33 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
                 } 
                 label={<Typography variant="caption">Remember me</Typography>}
               />
-              <Link href="#" variant="caption" sx={{ color: '#1A2137', textDecoration: 'none', fontWeight: 'medium' }}>
+              <Link 
+                href="#" 
+                variant="caption" 
+                sx={{ 
+                  color: '#1A2137', 
+                  textDecoration: 'none', 
+                  fontWeight: 'medium',
+                  pointerEvents: loading ? 'none' : 'auto',
+                  opacity: loading ? 0.7 : 1
+                }}
+              >
                 Forgot Password?
               </Link>
             </Box>
             
             <Button
-              type="submit"
+              type="button" 
               fullWidth
               variant="contained"
+              disabled={loading}
+              onClick={(e) => {
+                // Prevent any possible default behavior and stop propagation
+                e.preventDefault();
+                e.stopPropagation();
+                // Use setTimeout to break the event chain
+                setTimeout(() => handleLogin(), 0);
+              }}
               sx={{
                 py: 1,
                 backgroundColor: '#1A2137',
@@ -453,20 +630,44 @@ const Login = ({ setIsAuthenticated, setUserRole }) => {
                 },
                 borderRadius: 1,
                 fontWeight: 'medium',
-                fontSize: '0.875rem'
+                fontSize: '0.875rem',
+                position: 'relative',
+                minHeight: '36px'
               }}
             >
-              Login
+              {loading ? (
+                <>
+                  <CircularProgress 
+                    size={24} 
+                    sx={{ 
+                      color: 'white',
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      marginTop: '-12px',
+                      marginLeft: '-12px'
+                    }} 
+                  />
+                  <span style={{ visibility: 'hidden' }}>Login</span>
+                </>
+              ) : 'Login'}
             </Button>
-            
-            <Box sx={{ mt: 2, textAlign: 'center' }}>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                Having trouble logging in? <Link href="#" sx={{ color: '#1A2137', textDecoration: 'none', fontWeight: 'medium' }}>Contact Support</Link>
-              </Typography>
-            </Box>
+       
           </Box>
         </Paper>
       </Box>
+      
+      {/* Snackbar for error messages */}
+      <Snackbar 
+        open={snackbarOpen} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity="error" sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

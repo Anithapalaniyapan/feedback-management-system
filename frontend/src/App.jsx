@@ -11,6 +11,7 @@ import StaffDashboard from './components/dashboards/StaffDashboard'
 import AcademicDirectorDashboard from './components/dashboards/AcademicDirectorDashboard'
 import ExecutiveDirectorDashboard from './components/dashboards/ExecutiveDirectorDashboard'
 import { syncAuthState } from './redux/slices/authSlice'
+import HODDashboard from './components/dashboards/HODDashboard'
 
 const App = () => {
   const dispatch = useDispatch();
@@ -70,6 +71,13 @@ const App = () => {
       reduxNormalizedRole === 'student'
     );
     
+    const isHOD = (
+      normalizedUserRole === 'hod' ||
+      normalizedUserRole.includes('hod') ||
+      reduxNormalizedRole === 'hod' ||
+      reduxNormalizedRole.includes('hod')
+    );
+    
     // Check if route is for specific role
     const allowedRoleLower = allowedRole.toLowerCase();
     if (allowedRoleLower === 'academic_director' && isAcademicDirector) {
@@ -85,6 +93,10 @@ const App = () => {
     }
     
     if (allowedRoleLower === 'student' && isStudent) {
+      return element;
+    }
+
+    if (allowedRoleLower === 'hod' && isHOD) {
       return element;
     }
     
@@ -105,11 +117,12 @@ const App = () => {
       isStaff,
       isExecutiveDirector,
       isStudent,
+      isHOD,
       hasAccess
     });
     
     return (isAuthenticated || reduxIsAuthenticated) && 
-      (hasAccess || isAcademicDirector || isStaff || isExecutiveDirector || isStudent) ? 
+      (hasAccess || isAcademicDirector || isStaff || isExecutiveDirector || isStudent || isHOD) ? 
       element : 
       <Navigate to="/login" />;
   };
@@ -121,10 +134,11 @@ const App = () => {
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<Login setIsAuthenticated={setIsAuthenticated} setUserRole={setUserRole} />} />
-          <Route path="/student-dashboard" element={<ProtectedRoute element={<StudentDashboard />} allowedRole="STUDENT" />} />
+          <Route path="/student-dashboard" element={<ProtectedRoute element={<StudentDashboard />} allowedRole="student" />} />
           <Route path="/staff-dashboard" element={<ProtectedRoute element={<StaffDashboard />} allowedRole="STAFF" />} />
           <Route path="/academic-director-dashboard" element={<ProtectedRoute element={<AcademicDirectorDashboard />} allowedRole="ACADEMIC_DIRECTOR" />} />
           <Route path="/executive-director-dashboard" element={<ProtectedRoute element={<ExecutiveDirectorDashboard />} allowedRole="EXECUTIVE_DIRECTOR" />} />
+          <Route path="/hod-dashboard" element={<ProtectedRoute element={<HODDashboard />} allowedRole="HOD" />} />
         </Routes>
       </Router>
     </ThemeProvider>

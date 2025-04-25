@@ -35,15 +35,29 @@ module.exports = (sequelize, Sequelize) => {
     },
     departmentId: {
       type: Sequelize.INTEGER,
-      allowNull: true
+      allowNull: false,
+      references: {
+        model: 'departments',
+        key: 'id'
+      }
+    },
+    roleId: {
+      type: Sequelize.INTEGER,
+      allowNull: true,
+      comment: 'References the role ID from the roles table (e.g., student or staff)'
     },
     year: {
       type: Sequelize.INTEGER,
-      allowNull: true
+      allowNull: true,
+      comment: 'Academic year, required for student meetings'
     },
     createdBy: {
       type: Sequelize.INTEGER,
-      allowNull: false
+      allowNull: false,
+      references: {
+        model: 'users',
+        key: 'id'
+      }
     }
   });
 

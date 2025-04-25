@@ -11,7 +11,7 @@ module.exports = (sequelize, Sequelize) => {
     },
     year: {
       type: Sequelize.INTEGER,
-      allowNull: false,
+      allowNull: true,
       validate: {
         min: 1,
         max: 5
@@ -25,6 +25,11 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.ENUM('student', 'staff', 'both'),
       allowNull: false,
       defaultValue: 'both'
+    },
+    status: {
+      type: Sequelize.ENUM('active', 'inactive'),
+      defaultValue: 'active',
+      allowNull: false
     },
     createdBy: {
       type: Sequelize.INTEGER,

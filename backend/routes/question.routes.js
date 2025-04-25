@@ -13,6 +13,13 @@ router.post(
 // Get all questions
 router.get('/', [authJwt.verifyToken], questionController.getAllQuestions);
 
+// Get questions by department (with optional role query parameter)
+router.get(
+  '/department/:departmentId',
+  [authJwt.verifyToken],
+  questionController.getQuestionsByDepartmentAndYear
+);
+
 // Get questions by department and year
 router.get(
   '/department/:departmentId/year/:year',

@@ -104,9 +104,19 @@ exports.signin = async (req, res) => {
     }
 
     // Generate JWT token
-    const token = jwt.sign({ id: user.id }, config.secret, {
-      expiresIn: config.jwtExpiration
-    });
+    const token = jwt.sign(
+      { 
+        id: user.id,
+        iat: Math.floor(Date.now() / 1000) // Issued at time
+      }, 
+      config.secret, 
+      {
+        expiresIn: config.jwtExpiration,
+        algorithm: config.algorithm,
+        issuer: 'feedback-management-system',
+        subject: user.id.toString()
+      }
+    );
 
     // Get user roles - first check the primary role from roleId
     let authorities = [];
@@ -140,5 +150,104 @@ exports.signin = async (req, res) => {
     });
   } catch (error) {
     res.status(500).send({ message: error.message });
+  }
+};
+
+// Verify token
+exports.verifyToken = async (req, res) => {
+  try {
+    const token = req.headers['x-access-token'];
+
+    if (!token) {
+      return res.status(403).send({ 
+        valid: false,
+        message: 'No token provided' 
+      });
+    }
+
+    try {
+      const decoded = jwt.verify(token, config.secret, {
+        algorithms: [config.algorithm],
+        clockTolerance: config.clockTolerance,
+        issuer: 'feedback-management-system'
+      });
+      
+      // Find user with roles and department
+      const user = await User.findByPk(decoded.id, {
+        include: [
+          {
+            model: Role,
+            as: 'roles'
+          },
+          {
+            model: Department,
+            as: 'department'
+          }
+        ]
+      });
+
+      if (!user) {
+        return res.status(401).send({ 
+          valid: false,
+          message: 'User not found' 
+        });
+      }
+
+      // Check if user is active
+      if (!user.active) {
+        return res.status(403).send({ 
+          valid: false,
+          message: 'Account is inactive' 
+        });
+      }
+
+      // Get user roles and normalize them
+      const roles = user.roles.map(role => ({
+        id: role.id,
+        name: role.name.toLowerCase().replace(/[^a-z]/g, '')
+      }));
+
+      // Map normalized role names
+      const normalizedRoles = roles.map(role => {
+        if (role.name.includes('executive') || role.name.includes('executivedirector')) {
+          return 'executive_director';
+        } else if (role.name.includes('academic') || role.name.includes('academicdirector')) {
+          return 'academic_director';
+        } else if (role.name.includes('hod') || role.name.includes('headofdepartment')) {
+          return 'hod';
+        } else if (role.name.includes('staff') || role.name.includes('faculty') || role.name.includes('teacher')) {
+          return 'staff';
+        } else if (role.name.includes('student')) {
+          return 'student';
+        }
+        return role.name;
+      });
+
+      res.status(200).send({
+        valid: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          fullName: user.fullName,
+          roles: normalizedRoles,
+          department: user.department ? {
+            id: user.department.id,
+            name: user.department.name
+          } : null,
+          year: user.year
+        }
+      });
+    } catch (error) {
+      return res.status(401).send({ 
+        valid: false,
+        message: 'Invalid token' 
+      });
+    }
+  } catch (error) {
+    res.status(500).send({ 
+      valid: false,
+      message: error.message 
+    });
   }
 };

@@ -2,26 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import API from '../../api/axiosConfig'; // Import the global API instance
 import { useNavigate } from 'react-router-dom';
-import {
-  Box,
-  Typography,
-  Paper,
-  Button,
-  Grid,
-  Rating,
-  Avatar,
-  Drawer,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Snackbar,
-  Alert,
-  Container,
-  Card,
-  CardContent
-} from '@mui/material';
+import {Box,Typography,Paper,Button,Grid,Rating,Avatar,Drawer,List,ListItem,ListItemIcon,ListItemText,Divider,Snackbar,Alert,Container,Card,CardContent,TableContainer,Table,TableHead,TableBody,TableRow,TableCell,Chip} from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
@@ -30,30 +11,21 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import StarIcon from '@mui/icons-material/Star';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CircularProgress from '@mui/material/CircularProgress';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('profile');
   const [userProfile, setUserProfile] = useState({
-    name: 'John Doe',
+    name: 'Sowmiya',
     department: 'Computer Science',
     sin: 'ST23456789',
     year: 'Third Year',
     email: 'john.doe@university.edu'
   });
   const [meetings, setMeetings] = useState([]);
-  const [questions, setQuestions] = useState([
-    { id: 1, text: 'How would you rate the course content?' },
-    { id: 2, text: 'How would you rate the instructor\'s teaching?' },
-    { id: 3, text: 'How would you rate the learning environment?' },
-    { id: 4, text: 'How would you rate the overall experience?' }
-  ]);
-  const [ratings, setRatings] = useState({
-    1: 0,
-    2: 0,
-    3: 0,
-    4: 0
-  });
+  const [questions, setQuestions] = useState([]);
+  const [ratings, setRatings] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({
@@ -62,11 +34,13 @@ const StudentDashboard = () => {
     severity: 'info'
   });
   const [nextMeeting, setNextMeeting] = useState({
-    date: 'January 25, 2024',
+    date: 'January 25, 2026',
     time: '09:00 AM',
     minutesLeft: 45,
     secondsLeft: 30
   });
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionsError, setQuestionsError] = useState('');
 
   // Check authentication and role on component mount
   useEffect(() => {
@@ -123,11 +97,11 @@ const StudentDashboard = () => {
           console.log('Found stored user data:', parsedUserData);
           
           setUserProfile({
-            name: parsedUserData.fullName || 'John Doe',
-            department: parsedUserData.department?.name || 'Computer Science',
-            sin: parsedUserData.sinNumber || parsedUserData.username || 'ST23456789',
+            name: parsedUserData.fullName || 'Priya',
+            department: parsedUserData.department?.name || 'Information Technology',
+            sin: parsedUserData.sinNumber || parsedUserData.username || 'E22IT039',
             year: parsedUserData.year ? `Year ${parsedUserData.year}` : 'Third Year',
-            email: parsedUserData.email || 'john.doe@university.edu'
+            email: parsedUserData.email || 'e22it039@shanmugha.du.in'
           });
         } catch (e) {
           console.error('Error parsing stored user data:', e);
@@ -174,89 +148,156 @@ const StudentDashboard = () => {
 
   // Fetch meetings - defined outside useEffect to avoid recreating it on each render
   const fetchMeetings = async () => {
+    setLoading(true);
     try {
+      console.log('Fetching meetings for student dashboard');
       const token = localStorage.getItem('token');
+      
       if (!token) {
-        console.error('No token found');
-        return;
+        console.error('No authentication token found');
+        throw new Error('No authentication token found');
       }
-
-      // Get student's department and year from profile
-      const userProfile = JSON.parse(localStorage.getItem('userData'));
-      const studentDepartment = userProfile?.department;
-      const studentYear = userProfile?.year;
-
-      // First try to load from localStorage
-      const storedMeetings = localStorage.getItem('meetings');
-      if (storedMeetings) {
-        try {
-          const parsedMeetings = JSON.parse(storedMeetings);
-          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-            // Filter meetings based on student's department and year
-            const filteredMeetings = parsedMeetings.filter(meeting => 
-              meeting.role === 'student' &&
-              meeting.department === studentDepartment &&
-              meeting.year === studentYear
-            );
-            sortAndSetMeetings(filteredMeetings);
+      
+      // Use the new user-specific endpoint to get meetings filtered by role, department, and year
+      try {
+        const response = await axios.get('http://localhost:8080/api/meetings/user/current', {
+          headers: {
+            'x-access-token': token
+          }
+        });
+        
+        console.log('User-specific meetings API response:', response.data);
+        
+        if (response.data) {
+          let meetingsData = [];
+          
+          // Extract past, current and future meetings
+          if (response.data.pastMeetings) meetingsData.push(...response.data.pastMeetings);
+          if (response.data.currentMeetings) meetingsData.push(...response.data.currentMeetings);
+          if (response.data.futureMeetings) meetingsData.push(...response.data.futureMeetings);
+          
+          console.log('Processed student meetings:', meetingsData.length);
+          
+          if (meetingsData.length > 0) {
+            // Save to localStorage
+            localStorage.setItem('studentMeetings', JSON.stringify(meetingsData));
+            setMeetings(meetingsData);
+            
+            // Find next upcoming meeting for timer
+            setupMeetingTimer(meetingsData);
             return;
           }
-        } catch (error) {
-          console.error('Error parsing stored meetings:', error);
         }
+      } catch (userMeetingsError) {
+        console.error('Failed to fetch user-specific meetings:', userMeetingsError);
+        // Continue with fallback without showing errors to the user
       }
-
-      // If no valid meetings in localStorage, fetch from API
-      const response = await API.get('/meetings');
-      if (response.data && Array.isArray(response.data)) {
-        // Filter meetings based on student's department and year
-        const filteredMeetings = response.data.filter(meeting => 
-          meeting.role === 'student' &&
-          meeting.department === studentDepartment &&
-          meeting.year === studentYear
-        );
-        sortAndSetMeetings(filteredMeetings);
-      } else {
-        console.error('Invalid response format from API:', response.data);
-        // Create sample meetings as fallback
-        const sampleMeetings = [
-          {
-            id: '1',
-            title: 'Sample Student Meeting',
-            date: new Date().toISOString().split('T')[0],
-            startTime: '09:00',
-            endTime: '10:00',
-            role: 'student',
-            department: studentDepartment,
-            year: studentYear
+      
+      // Fallback to all meetings endpoint and filter client-side
+      try {
+        const allMeetingsResponse = await axios.get('http://localhost:8080/api/meetings', {
+          headers: {
+            'x-access-token': token
           }
-        ];
-        sortAndSetMeetings(sampleMeetings);
-      }
-    } catch (error) {
-      console.error('Error fetching meetings from API:', error);
-      // Try to load from localStorage as fallback
-      const storedMeetings = localStorage.getItem('meetings');
-      if (storedMeetings) {
-        try {
-          const parsedMeetings = JSON.parse(storedMeetings);
-          if (Array.isArray(parsedMeetings) && parsedMeetings.length > 0) {
-            // Filter meetings based on student's department and year
-            const userProfile = JSON.parse(localStorage.getItem('userData'));
-            const studentDepartment = userProfile?.department;
+        });
+        
+        console.log('All meetings API response:', allMeetingsResponse.data);
+        
+        if (Array.isArray(allMeetingsResponse.data) && allMeetingsResponse.data.length > 0) {
+          const meetingsData = allMeetingsResponse.data;
+          
+          // Filter for student meetings
+          const userProfile = JSON.parse(localStorage.getItem('userData') || '{}');
+          const studentDepartment = userProfile?.department?.id || userProfile?.departmentId;
             const studentYear = userProfile?.year;
             
-            const filteredMeetings = parsedMeetings.filter(meeting => 
-              meeting.role === 'student' &&
-              meeting.department === studentDepartment &&
-              meeting.year === studentYear
-            );
-            sortAndSetMeetings(filteredMeetings);
-          }
-        } catch (error) {
-          console.error('Error parsing stored meetings:', error);
+          console.log('Filtering meetings for department:', studentDepartment, 'year:', studentYear);
+          
+          const filteredMeetings = meetingsData.filter(meeting => {
+            // Filter by role (roleId = 1 for students)
+            const roleMatch = meeting.roleId === 1;
+            
+            // Department match if specified
+            const deptMatch = !studentDepartment || 
+                           meeting.departmentId == studentDepartment;
+            
+            // Year match if specified
+            const yearMatch = !studentYear || 
+                           meeting.year == studentYear;
+            
+            return roleMatch && deptMatch && yearMatch;
+          });
+          
+          console.log('Filtered student meetings:', filteredMeetings.length);
+          
+          // Save filtered meetings
+          localStorage.setItem('studentMeetings', JSON.stringify(filteredMeetings));
+          setMeetings(filteredMeetings);
+          
+          // Set up timer for next meeting
+          setupMeetingTimer(filteredMeetings);
+          return;
         }
+      } catch (allMeetingsError) {
+        console.error('Failed to fetch all meetings:', allMeetingsError);
+        // Continue with fallback without showing errors
       }
+      
+      // If we get here, try loading from localStorage
+      console.log('No meetings found from API, trying localStorage');
+      const loadSuccess = loadMeetingsFromStorage();
+      
+      if (!loadSuccess) {
+        console.log('No meetings found in storage, creating demo meeting');
+        // Create a demo meeting for display
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const demoMeeting = {
+          id: 'demo-' + Date.now(),
+          title: 'Student Feedback Session',
+          date: tomorrow.toISOString().split('T')[0],
+          meetingDate: tomorrow.toISOString().split('T')[0],
+          startTime: '10:00',
+          endTime: '11:30',
+          department: 'Computer Science',
+          departmentId: 1,
+          roleId: 1,
+          year: 4
+        };
+        
+        const demoMeetings = [demoMeeting];
+        setMeetings(demoMeetings);
+        localStorage.setItem('studentMeetings', JSON.stringify(demoMeetings));
+        setupMeetingTimer(demoMeetings);
+      }
+    } catch (error) {
+      console.error('Error in fetchMeetings:', error);
+      // Silently fail - don't show errors to user
+      loadMeetingsFromStorage();
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Helper function to set up meeting timer
+  const setupMeetingTimer = (meetingsList) => {
+    if (!Array.isArray(meetingsList) || meetingsList.length === 0) return;
+    
+    const now = new Date();
+    const upcomingMeetings = meetingsList
+      .filter(meeting => {
+        const meetingDate = new Date(meeting.meetingDate || meeting.date);
+        return !isNaN(meetingDate.getTime()) && meetingDate > now;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.meetingDate || a.date);
+        const dateB = new Date(b.meetingDate || b.date);
+        return dateA - dateB;
+      });
+    
+    if (upcomingMeetings.length > 0) {
+      setTimerFromMeeting(upcomingMeetings[0]);
     }
   };
 
@@ -281,111 +322,59 @@ const StudentDashboard = () => {
     }
   }, []);
 
-  // Fetch questions for feedback
-  const fetchQuestions = async (meetingId) => {
+  // Add useEffect for fetching questions
+  useEffect(() => {
+    if (activeSection === 'feedback') {
+      fetchQuestions();
+    }
+  }, [activeSection]);
+
+  // Update fetchQuestions function
+  const fetchQuestions = async () => {
+    setQuestionsLoading(true);
     try {
-      setLoading(true);
-      
-      // First try to fetch from API
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
-      
-      console.log(`Fetching questions for meeting ID: ${meetingId}`);
-      
-      // Use the global API instance with interceptors
-      const response = await API.get(`/questions/meeting/${meetingId}`);
-      
-      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-        console.log('API returned questions:', response.data);
+
+      const userData = JSON.parse(localStorage.getItem('userData')) || {};
+      const departmentId = userData.departmentId || userData.department?.id || 5;
+      const yearOfStudy = userData.year || 4;
+
+      console.log('Fetching questions for department:', departmentId, 'year:', yearOfStudy);
+
+      const response = await axios.get(
+        `http://localhost:8080/api/questions/department/${departmentId}/year/${yearOfStudy}?role=student`,
+        {
+          headers: {
+            'x-access-token': token
+          }
+        }
+      );
+
+      if (response.data && Array.isArray(response.data)) {
+        console.log('Received questions:', response.data);
         setQuestions(response.data);
         
-        // Reset the ratings since we have new questions
-        setRatings({});
+        // Initialize ratings state for new questions
+        const newRatings = {};
+        response.data.forEach(question => {
+          newRatings[question.id] = 0;
+        });
+        setRatings(newRatings);
         
-        // Show the feedback section
-        setActiveSection('feedback');
-        
-        return;
+        setQuestionsError('');
+      } else {
+        setQuestions([]);
+        setQuestionsError('No questions available for your year and department');
       }
-      
-      console.log('API returned no questions or invalid data. Trying localStorage...');
-      
-      // API failed, try to load from localStorage
-      const storedQuestions = localStorage.getItem('submittedQuestions') || localStorage.getItem('questions');
-      
-      if (storedQuestions) {
-        try {
-          const parsedQuestions = JSON.parse(storedQuestions);
-          
-          if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0) {
-            console.log('Found questions in localStorage:', parsedQuestions);
-            
-            // Use a standard set of questions for the demo
-            const standardQuestions = [
-              { id: 1, text: 'How would you rate the course content?' },
-              { id: 2, text: 'How would you rate the instructor\'s teaching?' },
-              { id: 3, text: 'How would you rate the learning environment?' },
-              { id: 4, text: 'How would you rate the overall experience?' }
-            ];
-            
-            setQuestions(parsedQuestions.length > 0 ? parsedQuestions : standardQuestions);
-            
-            // Reset the ratings since we have new questions
-            setRatings({});
-            
-            // Show the feedback section
-            setActiveSection('feedback');
-            
-            setSnackbar({
-              open: true,
-              message: 'Loaded questions from local storage',
-              severity: 'info'
-            });
-            
-            return;
-          }
-        } catch (parseError) {
-          console.error('Error parsing questions from localStorage:', parseError);
-        }
-      }
-      
-      // If we get here, we couldn't load from API or localStorage, use default questions
-      console.log('Using default questions');
-      
-      // Use a standard set of questions for the demo
-      setQuestions([
-        { id: 1, text: 'How would you rate the course content?' },
-        { id: 2, text: 'How would you rate the instructor\'s teaching?' },
-        { id: 3, text: 'How would you rate the learning environment?' },
-        { id: 4, text: 'How would you rate the overall experience?' }
-      ]);
-      
-      // Reset the ratings
-      setRatings({});
-      
-      // Show the feedback section
-      setActiveSection('feedback');
     } catch (error) {
       console.error('Error fetching questions:', error);
-      setError('Failed to load questions. Please try again.');
-      
-      // Use default questions as fallback
-      setQuestions([
-        { id: 1, text: 'How would you rate the course content?' },
-        { id: 2, text: 'How would you rate the instructor\'s teaching?' },
-        { id: 3, text: 'How would you rate the learning environment?' },
-        { id: 4, text: 'How would you rate the overall experience?' }
-      ]);
-      
-      // Reset the ratings
-      setRatings({});
-      
-      // Still show the feedback section despite the error
-      setActiveSection('feedback');
+      setQuestionsError('Failed to fetch questions. Please try again later.');
+      setQuestions([]);
     } finally {
-      setLoading(false);
+      setQuestionsLoading(false);
     }
   };
 
@@ -410,21 +399,32 @@ const StudentDashboard = () => {
         return;
       }
       
-      const feedbackData = {
-        responses: Object.entries(ratings).map(([questionId, rating]) => ({
-          questionId: parseInt(questionId),
-          rating
-        }))
-      };
+      setLoading(true);
+      
+      // Try to submit feedback
+      try {
+        const token = localStorage.getItem('token');
+        
+        // Process each question's rating and submit individually
+        for (const [questionId, rating] of Object.entries(ratings)) {
+          if (rating > 0) {
+            // Using the correct API endpoint for feedback submission
+            await axios.post('http://localhost:8080/api/feedback/submit', {
+              questionId: parseInt(questionId),
+              rating: rating,
+              notes: '' // Optional notes field
+            }, {
+              headers: {
+                'x-access-token': token,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            console.log(`Feedback for question ${questionId} submitted successfully`);
+          }
+        }
 
-      // Use the global API instance with interceptors
-      await API.post('/feedback', feedbackData);
-
-      // Mark feedback as submitted
-      await API.post('/feedback/mark-submitted', {
-        meetingId: meetings[0].id  // Assuming we're submitting for the first meeting
-      });
-
+        // Show success message
       setSnackbar({
         open: true,
         message: 'Feedback submitted successfully',
@@ -437,13 +437,26 @@ const StudentDashboard = () => {
         resetRatings[q.id] = 0;
       });
       setRatings(resetRatings);
+      } catch (apiError) {
+        console.error('Error submitting feedback to API:', apiError);
+        
+        // Show error message
+          setSnackbar({
+            open: true,
+          message: 'Failed to submit feedback: ' + (apiError.response?.data?.message || 'Please try again'),
+          severity: 'error'
+        });
+      }
     } catch (error) {
-      console.error('Error submitting feedback:', error);
+      console.error('Error in feedback submission flow:', error);
+      // Show generic message
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Failed to submit feedback',
-        severity: 'error'
+        message: 'Please try again later',
+        severity: 'info'
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -627,123 +640,174 @@ const StudentDashboard = () => {
     <Paper sx={{ p: 4, borderRadius: 0 }}>
       <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>Submit Feedback</Typography>
       
-      {questions.map((question) => (
-        <Box key={question.id} sx={{ mb: 4 }}>
-          <Typography variant="body1" gutterBottom>
-            {question.text}
-            </Typography>
-          <Rating
-            name={`rating-${question.id}`}
-            value={ratings[question.id] || 0}
-            onChange={(event, newValue) => handleRatingChange(question.id, newValue)}
-            size="medium"
-            sx={{ color: '#FFD700', mt: 1 }}
-          />
+      {questionsLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : questionsError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {questionsError}
+          <Button 
+            size="small" 
+            onClick={fetchQuestions} 
+            sx={{ ml: 2 }}
+          >
+            Retry
+          </Button>
+        </Alert>
+      ) : questions.length === 0 ? (
+        <Alert severity="info">
+          No feedback questions available for your year and department.
+        </Alert>
+      ) : (
+        <>
+          {questions.map((question) => (
+            <Box key={question.id} sx={{ mb: 4 }}>
+              <Typography variant="body1" gutterBottom>
+                {question.text}
+              </Typography>
+              <Rating
+                name={`rating-${question.id}`}
+                value={ratings[question.id] || 0}
+                onChange={(event, newValue) => handleRatingChange(question.id, newValue)}
+                size="medium"
+                sx={{ color: '#FFD700', mt: 1 }}
+              />
             </Box>
-      ))}
-      
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <Button 
-          variant="contained" 
-          onClick={handleSubmitFeedback} 
-          disabled={loading}
-          sx={{ 
-            bgcolor: '#1A2137', 
-            '&:hover': { bgcolor: '#2A3147' },
-            fontWeight: 'medium',
-            px: 4,
-            py: 1
-          }}
-        >
-          {loading ? 'Submitting...' : 'Submit Feedback'}
-        </Button>
+          ))}
+          
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+            <Button 
+              variant="contained" 
+              onClick={handleSubmitFeedback} 
+              disabled={loading}
+              sx={{ 
+                bgcolor: '#1A2137', 
+                '&:hover': { bgcolor: '#2A3147' },
+                fontWeight: 'medium',
+                px: 4,
+                py: 1
+              }}
+            >
+              {loading ? 'Submitting...' : 'Submit Feedback'}
+            </Button>
           </Box>
-        </Paper>
+        </>
+      )}
+    </Paper>
   );
 
   // Render meeting schedule section
   const renderViewMeetingSchedule = () => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    // Filter meetings to show only present and upcoming ones
-    const filteredMeetings = meetings.filter(meeting => {
-      const meetingDate = new Date(meeting.date || meeting.meetingDate);
-      return meetingDate >= today;
-    }).sort((a, b) => new Date(a.date || a.meetingDate) - new Date(b.date || b.meetingDate));
-
     return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h5" gutterBottom>
+      <Paper sx={{ p: 4, borderRadius: 0 }}>
+        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 4 }}>
           View Meeting Schedule
         </Typography>
         
-        {filteredMeetings.length === 0 ? (
-          <Typography variant="body1" sx={{ textAlign: 'center', color: 'text.secondary', py: 4 }}>
-            No meetings scheduled.
-          </Typography>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+            <CircularProgress />
+          </Box>
         ) : (
-          <Grid container spacing={3}>
-            {filteredMeetings.map((meeting) => {
-              const meetingDate = new Date(meeting.date || meeting.meetingDate);
-              const isToday = meetingDate.toDateString() === today.toDateString();
+          <>
+            {meetings && meetings.length > 0 ? (
+              <TableContainer>
+                <Table sx={{ minWidth: 650 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Title</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Time</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Department</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {meetings.map((meeting) => {
+                      // Normalize meeting data
+                      const meetingDate = meeting.meetingDate || meeting.date;
+                      const formattedDate = meetingDate 
+                        ? new Date(meetingDate).toLocaleDateString() 
+                        : 'Not specified';
+                      
+                      const departmentName = meeting.department?.name || 
+                                          (typeof meeting.department === 'string' ? meeting.department : null) ||
+                                          getDepartmentNameById(meeting.departmentId) || 
+                                          'Not specified';
               
               return (
-                <Grid item xs={12} key={meeting.id}>
-                  <Card sx={{ borderRadius: 0, mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        <TableRow 
+                          key={meeting.id}
+                          sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                        >
+                          <TableCell component="th" scope="row">
                         {meeting.title}
-                      </Typography>
-                      
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-                        <Typography variant="body2" sx={{ 
-                          color: 'primary.main',
-                          bgcolor: '#e3f2fd',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Date: ${meetingDate.toLocaleDateString()}`}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ 
-                          color: 'success.main',
-                          bgcolor: '#e8f5e9',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Time: ${meeting.startTime} - ${meeting.endTime}`}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ 
-                          color: '#6a1b9a',
-                          bgcolor: '#f3e5f5',
-                          px: 1.5,
-                          py: 0.5,
-                          borderRadius: 1
-                        }}>
-                          {`Department: ${meeting.department || 'Not specified'}`}
-                        </Typography>
-                      </Box>
-                      
-                      <Typography variant="body2" sx={{ 
-                        color: isToday ? 'success.main' : 'info.main',
-                        fontWeight: 'bold',
-                        mt: 2
-                      }}>
-                        {isToday ? 'Today\'s Meeting' : 'Upcoming Meeting'}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                          </TableCell>
+                          <TableCell>{formattedDate}</TableCell>
+                          <TableCell>{`${meeting.startTime || '00:00'} - ${meeting.endTime || '00:00'}`}</TableCell>
+                          <TableCell>{departmentName}</TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={meeting.status || 'Scheduled'} 
+                              size="small"
+                              sx={{ 
+                                bgcolor: 
+                                  meeting.status === 'completed' ? '#e8f5e9' : 
+                                  meeting.status === 'cancelled' ? '#ffebee' : 
+                                  meeting.status === 'in-progress' ? '#fff3e0' : '#e3f2fd',
+                                color: 
+                                  meeting.status === 'completed' ? '#2e7d32' : 
+                                  meeting.status === 'cancelled' ? '#c62828' : 
+                                  meeting.status === 'in-progress' ? '#ef6c00' : '#0277bd',
+                                textTransform: 'capitalize'
+                              }} 
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Button 
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              onClick={() => fetchQuestions(meeting.id)}
+                              startIcon={<FeedbackIcon />}
+                            >
+                              Feedback
+                            </Button>
+                          </TableCell>
+                        </TableRow>
               );
             })}
-          </Grid>
-        )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography variant="body1" color="textSecondary">
+                  No meetings scheduled at this time.
+                </Typography>
       </Box>
+            )}
+          </>
+        )}
+      </Paper>
     );
+  };
+  
+  // Helper function to get department name by ID
+  const getDepartmentNameById = (id) => {
+    if (!id) return null;
+    
+    const departmentMap = {
+      1: 'Computer Science and Engineering',
+      2: 'Information Technology',
+      3: 'Electronics and Communication',
+      4: 'Electrical Engineering',
+      5: 'Mechanical Engineering'
+    };
+    
+    return departmentMap[id] || `Department ${id}`;
   };
 
   // Sidebar component to match the screenshot exactly

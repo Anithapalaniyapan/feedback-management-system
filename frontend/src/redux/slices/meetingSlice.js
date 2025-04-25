@@ -77,7 +77,8 @@ export const fetchMeetings = createAsyncThunk(
         return rejectWithValue('No authentication token found');
       }
       
-      const response = await axios.get('http://localhost:8080/api/meetings', {
+      // Updated to use the user-specific endpoint instead of general meetings endpoint
+      const response = await axios.get('http://localhost:8080/api/meetings/user/current', {
         headers: {
           'x-access-token': auth.token
         }
@@ -352,12 +353,37 @@ const meetingSlice = createSlice({
     setCurrentMeeting: (state, action) => {
       state.currentMeeting = action.payload;
     },
+    setMeetings: (state, action) => {
+      console.log('Redux: Setting meetings with payload:', action.payload);
+      state.meetings = {
+        pastMeetings: action.payload.pastMeetings || [],
+        currentMeetings: action.payload.currentMeetings || [],
+        futureMeetings: action.payload.futureMeetings || []
+      };
+      
+      // Also add these directly to the state for compatibility
+      state.pastMeetings = action.payload.pastMeetings || [];
+      state.currentMeetings = action.payload.currentMeetings || [];
+      state.futureMeetings = action.payload.futureMeetings || [];
+      
+      // Calculate next meeting for timer if available
+      if (action.payload.currentMeetings?.length > 0 || action.payload.futureMeetings?.length > 0) {
+        const allUpcomingMeetings = [
+          ...(action.payload.currentMeetings || []),
+          ...(action.payload.futureMeetings || [])
+        ];
+        state.nextMeeting = calculateNextMeeting(allUpcomingMeetings);
+      }
+    },
     clearMeetings: (state) => {
       state.meetings = {
         pastMeetings: [],
         currentMeetings: [],
         futureMeetings: []
       };
+      state.pastMeetings = [];
+      state.currentMeetings = [];
+      state.futureMeetings = [];
       state.currentMeeting = null;
     },
     updateNextMeeting: (state, action) => {
@@ -551,6 +577,6 @@ const meetingSlice = createSlice({
   }
 });
 
-export const { setCurrentMeeting, clearMeetings, updateNextMeeting, resetCountdown } = meetingSlice.actions;
+export const { setCurrentMeeting, setMeetings, clearMeetings, updateNextMeeting, resetCountdown } = meetingSlice.actions;
 
 export default meetingSlice.reducer; 
